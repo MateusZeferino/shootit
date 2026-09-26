@@ -1,0 +1,1 @@
+-- Dados de teste serao adicionados apenas quando existirem tabelas de dominio.

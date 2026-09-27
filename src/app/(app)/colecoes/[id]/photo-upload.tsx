@@ -98,7 +98,7 @@ export function PhotoUpload({ collectionId }: { collectionId: string }) {
   return (
     <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="text-xl font-semibold">Adicionar fotos</h2>
-      <p className="mt-2 text-sm text-slate-600">JPEG, PNG ou WebP, até 10 MiB por foto. Acima de 6 MiB, o envio é retomável.</p>
+      <p className="mt-2 text-sm text-slate-600">JPEG, PNG ou WebP, até 10 MiB por foto. Acima de 4 MiB, o envio é retomável.</p>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold hover:bg-stone-50 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
           Selecionar imagens

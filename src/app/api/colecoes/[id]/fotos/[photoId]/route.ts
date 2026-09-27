@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 
 import { collectionIdSchema } from "@/lib/collections/validation";
 import { getPhotoAccess, isCrossOrigin, photoAccessResponse } from "@/lib/photos/access";
-import { PHOTO_BUCKET } from "@/lib/photos/validation";
+import { removePhotoObjects } from "@/lib/photos/variant-storage";
 
 export async function DELETE(
   request: Request,
@@ -30,7 +30,7 @@ export async function DELETE(
   if (readError) return Response.json({ error: "Não foi possível localizar a foto." }, { status: 500 });
   if (!photo) return Response.json({ error: "Foto não encontrada." }, { status: 404 });
 
-  const { error: storageError } = await access.supabase.storage.from(PHOTO_BUCKET).remove([photo.storage_path]);
+  const { error: storageError } = await removePhotoObjects(access.supabase.storage, photo.storage_path);
   if (storageError) {
     return Response.json({ error: "Não foi possível excluir o arquivo. Tente novamente." }, { status: 500 });
   }

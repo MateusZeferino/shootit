@@ -32,7 +32,7 @@ export async function POST(
   const error = validatePhotoFile({ size, type: mimeType });
   if (error) return Response.json({ error }, { status: 400 });
   if (size <= SIMPLE_UPLOAD_MAX_BYTES) {
-    return Response.json({ error: "Use o envio simples para imagens de até 6 MiB." }, { status: 400 });
+    return Response.json({ error: "Use o envio simples para imagens de até 4 MiB." }, { status: 400 });
   }
 
   const photoId = crypto.randomUUID();

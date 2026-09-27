@@ -1,5 +1,5 @@
 export const PHOTO_BUCKET = "photos";
-export const SIMPLE_UPLOAD_MAX_BYTES = 6 * 1024 * 1024;
+export const SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 export const PHOTO_URL_TTL_SECONDS = 5 * 60;
 

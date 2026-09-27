@@ -71,7 +71,7 @@ Esse teste cria e remove um usuário, duas coleções e uma foto temporários.
 O aplicativo tem manifesto, ícones, service worker mínimo e página offline.
 Somente a página offline, ícones e arquivos de `/_next/static/` entram no cache
 do service worker. O painel, as galerias, respostas da API, fotos e URLs assinadas
-exigem conexão. O upload usa o envio simples até 6 MiB e TUS acima disso;
+exigem conexão. O upload usa o envio simples até 4 MiB e TUS acima disso;
 o limite total atual do bucket e da aplicação continua em 10 MiB por foto.
 
 Para testar localmente após configurar `.env.local`, execute, nesta ordem:

@@ -11,6 +11,9 @@ import { PhotoUpload } from "@/app/(app)/colecoes/[id]/photo-upload";
 import { requireUser } from "@/lib/auth/user";
 import { collectionIdSchema } from "@/lib/collections/validation";
 import { PHOTO_BUCKET, PHOTO_URL_TTL_SECONDS } from "@/lib/photos/validation";
+import { photoVariantPaths } from "@/lib/photos/variant-paths";
+
+const PHOTO_PAGE_SIZE = 24;
 
 export const metadata: Metadata = {
   title: "Álbum",
@@ -32,31 +35,38 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
   if (error) throw new Error("Não foi possível carregar o álbum.");
   if (!collection) notFound();
 
+  const { data: batch, error: photosError } = await supabase
+    .from("photos")
+    .select("id,storage_path")
+    .eq("collection_id", collection.id)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(0, PHOTO_PAGE_SIZE);
+  if (photosError || !batch) throw new Error("Não foi possível carregar as fotos.");
+
+  const firstPage = batch.slice(0, PHOTO_PAGE_SIZE);
   const photos: GalleryPhoto[] = [];
-  let offset = 0;
-  while (true) {
-    const { data: batch, error: photosError } = await supabase
-      .from("photos")
-      .select("id,storage_path")
-      .eq("collection_id", collection.id)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(offset, offset + 99);
-    if (photosError || !batch) throw new Error("Não foi possível carregar as fotos.");
-    if (batch.length > 0) {
-      const { data: signed, error: signedError } = await supabase.storage
-        .from(PHOTO_BUCKET)
-        .createSignedUrls(batch.map((photo) => photo.storage_path), PHOTO_URL_TTL_SECONDS);
-      if (signedError || !signed) {
-        throw new Error("Não foi possível preparar a visualização das fotos.");
-      }
-      photos.push(...batch.map((photo, index) => ({
-        id: photo.id,
-        signedUrl: signed[index]?.signedUrl ?? null,
-      })));
+  if (firstPage.length > 0) {
+    const paths = firstPage.flatMap((photo) => {
+      const variants = photoVariantPaths(photo.storage_path);
+      return [photo.storage_path, variants.thumbnail, variants.preview];
+    });
+    const { data: signed, error: signedError } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .createSignedUrls(paths, PHOTO_URL_TTL_SECONDS);
+    if (signedError || !signed || signed.length !== paths.length) {
+      throw new Error("Não foi possível preparar a visualização das fotos.");
     }
-    if (batch.length < 100) break;
-    offset += 100;
+    const signedUrls = new Map(signed.map((item) => [item.path, item.error ? null : item.signedUrl]));
+    photos.push(...firstPage.map((photo) => {
+      const variants = photoVariantPaths(photo.storage_path);
+      return {
+        id: photo.id,
+        originalUrl: signedUrls.get(photo.storage_path) ?? null,
+        thumbnailUrl: signedUrls.get(variants.thumbnail) ?? null,
+        previewUrl: signedUrls.get(variants.preview) ?? null,
+      };
+    }));
   }
 
   return (
@@ -93,7 +103,7 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
           </div>
 
           <PhotoUpload collectionId={collection.id} />
-          <PhotoGallery collectionId={collection.id} photos={photos} />
+          <PhotoGallery collectionId={collection.id} initialHasMore={batch.length > PHOTO_PAGE_SIZE} key={collection.id} photos={photos} />
 
           <section className="mt-6 rounded-3xl border border-red-100 bg-white p-6">
             <h2 className="text-lg font-semibold">Excluir álbum</h2>

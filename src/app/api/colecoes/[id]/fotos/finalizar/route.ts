@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 
 import { collectionIdSchema } from "@/lib/collections/validation";
+import { createImageVariants, InvalidPhotoError } from "@/lib/photos/image-variants";
 import { getPhotoAccess, isCrossOrigin, photoAccessResponse } from "@/lib/photos/access";
 import {
   detectImageMimeType,
@@ -9,6 +10,8 @@ import {
   photoExtension,
   validatePhotoFile,
 } from "@/lib/photos/validation";
+import { photoVariantPaths } from "@/lib/photos/variant-paths";
+import { removePhotoObjects, uploadPhotoVariants } from "@/lib/photos/variant-storage";
 
 export async function POST(
   request: Request,
@@ -43,7 +46,7 @@ export async function POST(
   const error = validatePhotoFile({ size, type: mimeType });
   if (error) return Response.json({ error }, { status: 400 });
   if (size <= SIMPLE_UPLOAD_MAX_BYTES) {
-    return Response.json({ error: "Use o envio simples para imagens de até 6 MiB." }, { status: 400 });
+    return Response.json({ error: "Use o envio simples para imagens de até 4 MiB." }, { status: 400 });
   }
   const storagePath = `${access.userId}/${id.data}/${photoId.data}.${photoExtension(mimeType)}`;
   const existing = await access.supabase.from("photos").select("id,storage_path")
@@ -63,9 +66,36 @@ export async function POST(
   }
   const signature = detectImageMimeType(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
   if (file.size !== size || file.type !== mimeType || signature !== mimeType) {
-    const { error: cleanupError } = await access.supabase.storage.from(PHOTO_BUCKET).remove([storagePath]);
+    const { error: cleanupError } = await removePhotoObjects(access.supabase.storage, storagePath);
     if (cleanupError) console.error("Falha ao remover upload inválido", { code: cleanupError.statusCode });
     return Response.json({ error: "Arquivo inválido ou diferente do informado." }, { status: 400 });
+  }
+
+  let variants: Awaited<ReturnType<typeof createImageVariants>>;
+  try {
+    variants = await createImageVariants(Buffer.from(await file.arrayBuffer()));
+  } catch (cause) {
+    if (cause instanceof InvalidPhotoError) {
+      const { error: cleanupError } = await removePhotoObjects(access.supabase.storage, storagePath);
+      if (cleanupError) console.error("Falha ao remover imagem inválida", { code: cleanupError.statusCode });
+      return Response.json({ error: "Imagem inválida ou grande demais para processamento." }, { status: 400 });
+    }
+    return Response.json({ error: "Não foi possível processar a imagem. Tente novamente." }, { status: 500 });
+  }
+
+  const variantPaths = photoVariantPaths(storagePath);
+  const { error: staleVariantsError } = await access.supabase.storage.from(PHOTO_BUCKET)
+    .remove([variantPaths.thumbnail, variantPaths.preview]);
+  if (staleVariantsError) {
+    return Response.json({ error: "Não foi possível preparar a foto. Tente novamente." }, { status: 500 });
+  }
+  try {
+    await uploadPhotoVariants(access.supabase.storage, storagePath, variants);
+  } catch {
+    const { error: cleanupError } = await access.supabase.storage.from(PHOTO_BUCKET)
+      .remove([variantPaths.thumbnail, variantPaths.preview]);
+    if (cleanupError) console.error("Falha ao limpar versões incompletas", { code: cleanupError.statusCode });
+    return Response.json({ error: "Não foi possível preparar a foto. Tente novamente." }, { status: 500 });
   }
 
   const { error: insertError } = await access.supabase.from("photos").insert({
@@ -76,6 +106,8 @@ export async function POST(
     file_size_bytes: size,
   });
   if (insertError) {
+    const { error: cleanupError } = await removePhotoObjects(access.supabase.storage, storagePath);
+    if (cleanupError) console.error("Falha ao limpar foto sem registro", { code: cleanupError.statusCode });
     return Response.json({ error: "Não foi possível registrar a foto. Tente novamente." }, { status: 500 });
   }
   revalidatePath(`/colecoes/${id.data}`);

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
@@ -9,7 +10,7 @@ if (!supabaseUrl || !serviceKey) throw new Error("Configure .env.local antes do 
 
 const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 const tinyPng = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==",
   "base64",
 );
 
@@ -78,12 +79,31 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     await expect(page.getByRole("button", { name: "Ampliar foto 1" })).toBeVisible();
 
     // The tiny valid PNG can contain trailing bytes; this exercises the TUS branch.
-    const largePng = Buffer.concat([tinyPng, Buffer.alloc(6 * 1024 * 1024 + 1)]);
+    const largePng = Buffer.concat([tinyPng, Buffer.alloc(4 * 1024 * 1024 + 1)]);
     await page.locator('input[type="file"]').setInputFiles({
       name: "grande.png", mimeType: "image/png", buffer: largePng,
     });
     await page.getByRole("button", { name: "Enviar 1 foto" }).click();
     await expect(page.getByRole("button", { name: "Ampliar foto 2" })).toBeVisible({ timeout: 60_000 });
+
+    const uploadedPhotos = await admin.from("photos")
+      .select("id,storage_path,file_size_bytes")
+      .eq("collection_id", collectionId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    expect(uploadedPhotos.error).toBeNull();
+    expect(uploadedPhotos.data).toHaveLength(2);
+    const [newestPhoto, olderPhoto] = uploadedPhotos.data!;
+    const objectNamesFor = (storagePath: string) => {
+      const originalName = storagePath.split("/").at(-1)!;
+      const stem = originalName.replace(/\.[^.]+$/, "");
+      return [originalName, `${stem}-thumb.webp`, `${stem}-preview.webp`];
+    };
+    const uploadedObjects = await admin.storage.from("photos").list(`${userId}/${collectionId}`);
+    expect(uploadedObjects.error).toBeNull();
+    expect(uploadedObjects.data?.map((object) => object.name).sort()).toEqual(
+      uploadedPhotos.data!.flatMap((photo) => objectNamesFor(photo.storage_path)).sort(),
+    );
 
     await page.goto(galleryPath!);
     await expect(page.getByRole("heading", { name: "Galeria E2E" })).toBeVisible();
@@ -98,18 +118,24 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       await visitor.goto(galleryPath!);
       await expect(visitor.getByRole("heading", { name: "Galeria E2E" })).toBeVisible();
       await expect(visitor.getByRole("button", { name: "Ampliar foto 1" })).toBeVisible();
-      await expect.poll(() => visitor.locator("img").first().evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+      const firstThumbnail = visitor.getByRole("button", { name: "Ampliar foto 1" }).locator("img");
+      await expect(firstThumbnail).toHaveAttribute("src", new RegExp(`${newestPhoto.id}-thumb\\.webp(?:\\?|$)`));
+      await expect(visitor.getByRole("button", { name: "Ampliar foto 2" }).locator("img"))
+        .toHaveAttribute("src", new RegExp(`${olderPhoto.id}-thumb\\.webp(?:\\?|$)`));
+      await expect.poll(() => firstThumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
       await expect(visitor.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
       await expect(visitor.getByText("Excluir foto")).toHaveCount(0);
       const prepareEndpoint = `/api/colecoes/${collectionId}/fotos/preparar`;
       const anonymousPrepare = await visitor.request.post(prepareEndpoint, {
-        data: { size: 6 * 1024 * 1024 + 1, mimeType: "image/png" },
+        data: { size: largePng.length, mimeType: "image/png" },
       });
       expect(anonymousPrepare.status()).toBe(401);
       const wrongMethod = await visitor.request.get(prepareEndpoint);
       expect(wrongMethod.status()).toBe(405);
       await visitor.getByRole("button", { name: "Ampliar foto 1" }).click();
       await expect(visitor.getByRole("dialog")).toBeVisible();
+      await expect(visitor.getByRole("dialog").getByRole("img", { name: "Foto ampliada de Galeria E2E" }))
+        .toHaveAttribute("src", new RegExp(`${newestPhoto.id}-preview\\.webp(?:\\?|$)`));
       await expect(visitor.getByRole("button", { name: "Fechar" })).toBeFocused();
       const downloadLink = visitor.getByRole("link", { name: "Baixar foto" });
       await expect(downloadLink).toHaveAttribute("href", /\/g\/[0-9a-f-]+\/fotos\/[0-9a-f-]+\/download$/);
@@ -121,6 +147,8 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       ]);
       expect(download.suggestedFilename()).toMatch(/^foto-[0-9a-f-]+\.png$/);
       expect(await download.failure()).toBeNull();
+      const expectedOriginal = newestPhoto.file_size_bytes === tinyPng.length ? tinyPng : largePng;
+      expect(Buffer.compare(await readFile(await download.path()), expectedOriginal)).toBe(0);
       await visitor.keyboard.press("Tab");
       await expect(visitor.getByRole("button", { name: "Fechar" })).toBeFocused();
       await visitor.keyboard.press("Escape");
@@ -144,7 +172,7 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     expect(worker.headers()["cache-control"]).toContain("no-store");
     const crossOriginPrepare = await page.request.post(`/api/colecoes/${collectionId}/fotos/preparar`, {
       headers: { Origin: "https://attacker.invalid" },
-      data: { size: 6 * 1024 * 1024 + 1, mimeType: "image/png" },
+      data: { size: largePng.length, mimeType: "image/png" },
     });
     expect(crossOriginPrepare.status()).toBe(403);
 
@@ -171,6 +199,11 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Excluir foto" }).first().click();
     await expect(page.getByRole("button", { name: "Ampliar foto 2" })).toHaveCount(0);
+    const objectsAfterPhotoDeletion = await admin.storage.from("photos").list(`${userId}/${collectionId}`);
+    expect(objectsAfterPhotoDeletion.error).toBeNull();
+    expect(objectsAfterPhotoDeletion.data?.map((object) => object.name).sort()).toEqual(
+      objectNamesFor(olderPhoto.storage_path).sort(),
+    );
 
     const orphanPath = `${userId}/${collectionId}/${randomUUID()}.png`;
     const orphan = await admin.storage.from("photos").upload(orphanPath, tinyPng, {

@@ -111,10 +111,22 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       await visitor.getByRole("button", { name: "Ampliar foto 1" }).click();
       await expect(visitor.getByRole("dialog")).toBeVisible();
       await expect(visitor.getByRole("button", { name: "Fechar" })).toBeFocused();
+      const downloadLink = visitor.getByRole("link", { name: "Baixar foto" });
+      await expect(downloadLink).toHaveAttribute("href", /\/g\/[0-9a-f-]+\/fotos\/[0-9a-f-]+\/download$/);
+      await visitor.keyboard.press("Tab");
+      await expect(downloadLink).toBeFocused();
+      const [download] = await Promise.all([
+        visitor.waitForEvent("download"),
+        downloadLink.click(),
+      ]);
+      expect(download.suggestedFilename()).toMatch(/^foto-[0-9a-f-]+\.png$/);
+      expect(await download.failure()).toBeNull();
       await visitor.keyboard.press("Tab");
       await expect(visitor.getByRole("button", { name: "Fechar" })).toBeFocused();
       await visitor.keyboard.press("Escape");
       await expect(visitor.getByRole("dialog")).toHaveCount(0);
+      const missingDownload = await visitor.request.get(`${galleryPath}/fotos/${randomUUID()}/download`);
+      expect(missingDownload.status()).toBe(404);
       expect(await visitor.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await visitor.goto("/albuns");
       await expect(visitor).toHaveURL(/\/login$/);

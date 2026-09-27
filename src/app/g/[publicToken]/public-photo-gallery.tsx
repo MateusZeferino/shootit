@@ -7,14 +7,17 @@ export type PublicPhoto = { id: string; signedUrl: string | null };
 
 export function PublicPhotoGallery({
   collectionName,
+  publicToken,
   photos,
 }: {
   collectionName: string;
+  publicToken: string;
   photos: PublicPhoto[];
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const downloadLinkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
     if (photos.length === 0) return;
@@ -30,7 +33,11 @@ export function PublicPhotoGallery({
       if (event.key === "Escape") setSelectedId(null);
       if (event.key === "Tab") {
         event.preventDefault();
-        closeButtonRef.current?.focus();
+        if (document.activeElement === closeButtonRef.current) {
+          downloadLinkRef.current?.focus();
+        } else {
+          closeButtonRef.current?.focus();
+        }
       }
     }
     window.addEventListener("keydown", handleModalKeys);
@@ -99,6 +106,13 @@ export function PublicPhotoGallery({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt={`Foto ampliada de ${collectionName}`} className="max-h-full max-w-full object-contain" src={selectedPhoto.signedUrl} />
           </div>
+          <a
+            ref={downloadLinkRef}
+            className="mt-4 self-center rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            href={`/g/${publicToken}/fotos/${selectedPhoto.id}/download`}
+          >
+            Baixar foto
+          </a>
         </div>
       )}
     </section>

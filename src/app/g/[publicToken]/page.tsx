@@ -63,7 +63,7 @@ export default async function PublicGalleryPage({ params }: PageProps<"/g/[publi
             {collection.name}
           </h1>
         </header>
-        <PublicPhotoGallery collectionName={collection.name} photos={photos} />
+        <PublicPhotoGallery collectionName={collection.name} publicToken={token.data} photos={photos} />
       </div>
     </main>
   );

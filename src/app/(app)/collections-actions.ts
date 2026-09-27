@@ -34,10 +34,11 @@ export async function createCollection(
     .single();
 
   if (error || !data) {
-    return { error: "Não foi possível criar a coleção. Tente novamente." };
+    return { error: "Não foi possível criar o álbum. Tente novamente." };
   }
 
   revalidatePath("/dashboard");
+  revalidatePath("/albuns");
   redirect(`/colecoes/${data.id}`);
 }
 
@@ -61,11 +62,12 @@ export async function renameCollection(
     .maybeSingle();
 
   if (error) {
-    return { error: "Não foi possível renomear a coleção. Tente novamente." };
+    return { error: "Não foi possível renomear o álbum. Tente novamente." };
   }
   if (!data) notFound();
 
   revalidatePath("/dashboard");
+  revalidatePath("/albuns");
   revalidatePath(`/colecoes/${id}`);
   return { success: "Nome atualizado." };
 }
@@ -83,7 +85,7 @@ export async function deleteCollection(
     .eq("id", id)
     .eq("owner_id", userId)
     .maybeSingle();
-  if (collectionError) return { error: "Não foi possível verificar a coleção. Tente novamente." };
+  if (collectionError) return { error: "Não foi possível verificar o álbum. Tente novamente." };
   if (!collection) notFound();
 
   const prefix = `${userId}/${id}`;
@@ -92,7 +94,7 @@ export async function deleteCollection(
       .from(PHOTO_BUCKET)
       .list(prefix, { limit: 100 });
     if (listError || !objects) {
-      return { error: "Não foi possível listar as fotos da coleção. Tente novamente." };
+      return { error: "Não foi possível listar as fotos do álbum. Tente novamente." };
     }
     if (objects.length === 0) break;
     const { error: storageError } = await supabase.storage
@@ -112,10 +114,11 @@ export async function deleteCollection(
     .maybeSingle();
 
   if (error) {
-    return { error: "Não foi possível excluir a coleção. Tente novamente." };
+    return { error: "Não foi possível excluir o álbum. Tente novamente." };
   }
   if (!data) notFound();
 
   revalidatePath("/dashboard");
+  revalidatePath("/albuns");
   redirect("/dashboard");
 }

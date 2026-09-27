@@ -25,9 +25,9 @@ export function photoAccessResponse(status: "unauthorized" | "not_found" | "erro
     case "unauthorized":
       return Response.json({ error: "Faça login para continuar." }, { status: 401 });
     case "not_found":
-      return Response.json({ error: "Coleção não encontrada." }, { status: 404 });
+      return Response.json({ error: "Álbum não encontrado." }, { status: 404 });
     case "error":
-      return Response.json({ error: "Não foi possível verificar a coleção." }, { status: 500 });
+      return Response.json({ error: "Não foi possível verificar o álbum." }, { status: 500 });
   }
 }
 

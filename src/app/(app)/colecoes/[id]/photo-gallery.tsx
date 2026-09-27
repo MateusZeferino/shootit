@@ -67,7 +67,7 @@ export function PhotoGallery({ collectionId, photos }: { collectionId: string; p
       {error && <p className="mt-3 text-sm text-red-700" role="alert">{error}</p>}
       {visiblePhotos.length === 0 ? (
         <div className="mt-4 rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-          <p className="font-semibold">Nenhuma foto nesta coleção</p>
+          <p className="font-semibold">Nenhuma foto neste álbum</p>
           <p className="mt-2 text-slate-600">Selecione imagens acima para começar.</p>
         </div>
       ) : (
@@ -83,7 +83,7 @@ export function PhotoGallery({ collectionId, photos }: { collectionId: string; p
                 >
                   {/* Signed URLs are short-lived and are not cached by the Next image optimizer. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img alt={`Foto ${index + 1} da coleção`} className="h-full w-full object-cover" loading="lazy" src={photo.signedUrl} />
+                  <img alt={`Foto ${index + 1} do álbum`} className="h-full w-full object-cover" loading="lazy" src={photo.signedUrl} />
                 </button>
               ) : (
                 <div className="flex aspect-square items-center justify-center bg-stone-100 p-3 text-center text-sm text-slate-600">

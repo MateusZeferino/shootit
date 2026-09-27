@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
         ],
       },
-      ...["/dashboard/:path*", "/colecoes/:path*", "/api/colecoes/:path*"].map((source) => ({
+      ...["/dashboard/:path*", "/albuns/:path*", "/colecoes/:path*", "/api/colecoes/:path*"].map((source) => ({
         source,
         headers: [{ key: "Cache-Control", value: "private, no-store" }],
       })),

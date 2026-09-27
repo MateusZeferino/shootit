@@ -20,7 +20,7 @@ export function CollectionForm({ mode, collectionId, initialName }: Props) {
     <form action={formAction} className="space-y-4">
       {!isCreate && <input name="id" type="hidden" value={collectionId} />}
       <label className="block text-sm font-medium text-slate-700" htmlFor={isCreate ? "new-name" : "collection-name"}>
-        Nome da coleção
+        Nome do álbum
         <input
           className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-950 outline-none focus:border-slate-950"
           defaultValue={initialName}
@@ -40,7 +40,7 @@ export function CollectionForm({ mode, collectionId, initialName }: Props) {
         disabled={pending}
         type="submit"
       >
-        {pending ? "Salvando..." : isCreate ? "Criar coleção" : "Salvar nome"}
+        {pending ? "Salvando..." : isCreate ? "Criar álbum" : "Salvar nome"}
       </button>
     </form>
   );

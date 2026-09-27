@@ -29,10 +29,13 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     await page.getByLabel("Senha").fill(password);
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByText("Sua primeira coleção começa aqui")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Seus álbuns" })).toBeVisible();
+    await expect(page.getByText("Seja bem-vindo, Teste E2E")).toBeVisible();
+    await expect(page.getByText("Seu primeiro álbum começa aqui")).toBeVisible();
 
-    await page.getByLabel("Nome da coleção").fill("Galeria E2E");
-    await page.getByRole("button", { name: "Criar coleção" }).click();
+    await page.getByRole("button", { name: "Criar álbum novo" }).click();
+    await page.getByLabel("Nome do álbum").fill("Galeria E2E");
+    await page.getByRole("button", { name: "Criar álbum", exact: true }).click();
     await expect(page).toHaveURL(/\/colecoes\/[0-9a-f-]+$/);
     const collectionUrl = page.url();
     const collectionId = collectionUrl.split("/").at(-1)!;
@@ -41,6 +44,32 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     const galleryLink = page.locator('a[href^="/g/"]').first();
     const galleryPath = await galleryLink.getAttribute("href");
     expect(galleryPath).toMatch(/^\/g\/[0-9a-f-]+$/);
+
+    for (const name of ["Ensaio família", "Casamento", "Retratos"]) {
+      const inserted = await admin.from("collections").insert({ owner_id: userId, name });
+      expect(inserted.error).toBeNull();
+    }
+    await page.goto("/dashboard");
+    const recentAlbums = page.getByRole("region", { name: "Álbuns recentes" });
+    await expect(recentAlbums.getByRole("article")).toHaveCount(3);
+    await expect(recentAlbums.getByRole("heading", { name: "Galeria E2E" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Ver todos os álbuns" }).click();
+    await expect(page).toHaveURL(/\/albuns$/);
+    const albumGrid = page.getByRole("region", { name: "Álbuns cadastrados" });
+    await expect(albumGrid.getByRole("article")).toHaveCount(4);
+    expect(await albumGrid.evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(3);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await albumGrid.evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const albumsResponse = await page.request.get("/albuns");
+    expect(albumsResponse.headers()["cache-control"]).toContain("no-store");
+    await page.getByRole("searchbox", { name: "Buscar álbuns pelo nome" }).fill("FAMILIA");
+    await expect(page.getByRole("article")).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "Ensaio família" })).toBeVisible();
+    await page.getByRole("link", { name: "Voltar" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto(collectionUrl);
 
     await page.locator('input[type="file"]').setInputFiles({
       name: "pequena.png", mimeType: "image/png", buffer: tinyPng,
@@ -87,6 +116,8 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       await visitor.keyboard.press("Escape");
       await expect(visitor.getByRole("dialog")).toHaveCount(0);
       expect(await visitor.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await visitor.goto("/albuns");
+      await expect(visitor).toHaveURL(/\/login$/);
     } finally {
       await publicContext.close();
     }
@@ -135,7 +166,7 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     });
     expect(orphan.error).toBeNull();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Excluir coleção" }).click();
+    await page.getByRole("button", { name: "Excluir álbum" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
     const missingGallery = await page.request.get(galleryPath!);
     expect(missingGallery.status()).toBe(404);
@@ -155,5 +186,105 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       }
     }
     await admin.auth.admin.deleteUser(userId);
+  }
+});
+
+test("exclusão da conta remove Auth, álbuns, fotos e objetos do Storage", async ({ page }) => {
+  const email = `delete-${randomUUID()}@example.invalid`;
+  const password = `${randomUUID()}Aa1!`;
+  const created = await admin.auth.admin.createUser({
+    email, password, email_confirm: true, user_metadata: { name: "Conta descartável" },
+  });
+  expect(created.error).toBeNull();
+  const userId = created.data.user!.id;
+  let storagePath: string | undefined;
+  let orphanPath: string | undefined;
+  let deleted = false;
+
+  try {
+    const collection = await admin.from("collections")
+      .insert({ owner_id: userId, name: "Álbum descartável" })
+      .select("id,public_token")
+      .single();
+    expect(collection.error).toBeNull();
+    const collectionId = collection.data!.id;
+    const galleryPath = `/g/${collection.data!.public_token}`;
+    const photoId = randomUUID();
+    storagePath = `${userId}/${collectionId}/${photoId}.png`;
+    const uploaded = await admin.storage.from("photos").upload(storagePath, tinyPng, {
+      contentType: "image/png", upsert: false,
+    });
+    expect(uploaded.error).toBeNull();
+    const photo = await admin.from("photos").insert({
+      id: photoId, collection_id: collectionId, storage_path: storagePath,
+      mime_type: "image/png", file_size_bytes: tinyPng.length,
+    });
+    expect(photo.error).toBeNull();
+    const secondCollection = await admin.from("collections")
+      .insert({ owner_id: userId, name: "Outro álbum" })
+      .select("id")
+      .single();
+    expect(secondCollection.error).toBeNull();
+    orphanPath = `${userId}/${secondCollection.data!.id}/${randomUUID()}.png`;
+    const orphanUpload = await admin.storage.from("photos").upload(orphanPath, tinyPng, {
+      contentType: "image/png", upsert: false,
+    });
+    expect(orphanUpload.error).toBeNull();
+
+    const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    if (!publishableKey) throw new Error("Configure a chave publicável para o E2E.");
+    const oldSession = createClient(supabaseUrl!, publishableKey, { auth: { persistSession: false } });
+    const signedIn = await oldSession.auth.signInWithPassword({ email, password });
+    expect(signedIn.error).toBeNull();
+    await page.goto("/login");
+    await page.getByRole("textbox", { name: "E-mail" }).fill(email);
+    await page.getByLabel("Senha").fill(password);
+    await page.getByRole("button", { name: "Entrar" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    await page.getByRole("button", { name: "Excluir minha conta" }).click();
+    await page.getByLabel("Confirme sua senha").fill("senha-incorreta");
+    await page.getByRole("checkbox", { name: /Entendo que não poderei recuperar/ }).check();
+    await page.getByRole("button", { name: "Excluir conta definitivamente" }).click();
+    await expect(page.getByText("Senha incorreta. A conta não foi excluída.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Seus álbuns" })).toBeVisible();
+
+    await page.getByLabel("Confirme sua senha").fill(password);
+    await page.getByRole("checkbox", { name: /Entendo que não poderei recuperar/ }).check();
+    await page.getByRole("button", { name: "Excluir conta definitivamente" }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    deleted = true;
+
+    const [profileRows, collectionRows, photoRows, objects, gallery] = await Promise.all([
+      admin.from("profiles").select("id").eq("id", userId),
+      admin.from("collections").select("id").eq("owner_id", userId),
+      admin.from("photos").select("id").eq("id", photoId),
+      admin.storage.from("photos").list(userId),
+      page.request.get(galleryPath),
+    ]);
+    expect(profileRows.error).toBeNull();
+    expect(profileRows.data).toHaveLength(0);
+    expect(collectionRows.error).toBeNull();
+    expect(collectionRows.data).toHaveLength(0);
+    expect(photoRows.error).toBeNull();
+    expect(photoRows.data).toHaveLength(0);
+    expect(objects.error).toBeNull();
+    expect(objects.data).toHaveLength(0);
+    expect(gallery.status()).toBe(404);
+
+    const account = await admin.auth.admin.getUserById(userId);
+    expect(account.error).not.toBeNull();
+    const staleUpload = await oldSession.storage.from("photos").upload(storagePath, tinyPng, {
+      contentType: "image/png", upsert: false,
+    });
+    expect(staleUpload.error).not.toBeNull();
+    const loginAgain = await oldSession.auth.signInWithPassword({ email, password });
+    expect(loginAgain.error).not.toBeNull();
+  } finally {
+    if (!deleted) {
+      if (storagePath) await admin.storage.from("photos").remove([storagePath]);
+      if (orphanPath) await admin.storage.from("photos").remove([orphanPath]);
+      await admin.auth.admin.deleteUser(userId);
+    }
   }
 });

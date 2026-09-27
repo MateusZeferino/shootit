@@ -13,7 +13,7 @@ import { collectionIdSchema } from "@/lib/collections/validation";
 import { PHOTO_BUCKET, PHOTO_URL_TTL_SECONDS } from "@/lib/photos/validation";
 
 export const metadata: Metadata = {
-  title: "Coleção",
+  title: "Álbum",
 };
 
 export default async function CollectionPage({ params }: PageProps<"/colecoes/[id]">) {
@@ -29,7 +29,7 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
     .eq("owner_id", userId)
     .maybeSingle();
 
-  if (error) throw new Error("Não foi possível carregar a coleção.");
+  if (error) throw new Error("Não foi possível carregar o álbum.");
   if (!collection) notFound();
 
   const photos: GalleryPhoto[] = [];
@@ -64,17 +64,17 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
       <div className="mx-auto w-full max-w-6xl">
         <AppHeader />
         <div className="py-10">
-          <Link className="text-sm font-medium text-slate-600 underline hover:text-slate-950" href="/dashboard">
-            ← Voltar às coleções
+          <Link className="text-sm font-medium text-slate-600 underline hover:text-slate-950" href="/albuns">
+            ← Voltar aos álbuns
           </Link>
-          <p className="mt-8 text-sm font-medium text-slate-500">Coleção</p>
+          <p className="mt-8 text-sm font-medium text-slate-500">Álbum</p>
           <h1 className="mt-2 break-words text-4xl font-semibold tracking-tight">
             {collection.name}
           </h1>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold">Renomear coleção</h2>
+              <h2 className="text-xl font-semibold">Renomear álbum</h2>
               <div className="mt-5">
                 <CollectionForm
                   collectionId={collection.id}
@@ -96,9 +96,9 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
           <PhotoGallery collectionId={collection.id} photos={photos} />
 
           <section className="mt-6 rounded-3xl border border-red-100 bg-white p-6">
-            <h2 className="text-lg font-semibold">Excluir coleção</h2>
+            <h2 className="text-lg font-semibold">Excluir álbum</h2>
             <p className="mt-2 mb-5 text-sm text-slate-600">
-              A coleção e todas as suas fotos serão removidas. Esta ação não pode ser desfeita.
+              O álbum e todas as suas fotos serão removidos. Esta ação não pode ser desfeita.
             </p>
             <DeleteCollectionForm id={collection.id} name={collection.name} />
           </section>

@@ -15,7 +15,7 @@ export function DeleteCollectionForm({ id, name }: { id: string; name: string })
     <form
       action={formAction}
       onSubmit={(event) => {
-        if (!window.confirm(`Excluir a coleção “${name}”? Esta ação não pode ser desfeita.`)) {
+        if (!window.confirm(`Excluir o álbum “${name}”? Esta ação não pode ser desfeita.`)) {
           event.preventDefault();
         }
       }}
@@ -27,7 +27,7 @@ export function DeleteCollectionForm({ id, name }: { id: string; name: string })
         disabled={pending}
         type="submit"
       >
-        {pending ? "Excluindo..." : "Excluir coleção"}
+        {pending ? "Excluindo..." : "Excluir álbum"}
       </button>
     </form>
   );

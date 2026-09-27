@@ -16,7 +16,7 @@ export async function POST(request: Request, context: RouteContext<"/api/colecoe
   }
   const { id: rawId } = await context.params;
   const id = collectionIdSchema.safeParse(rawId);
-  if (!id.success) return Response.json({ error: "Coleção não encontrada." }, { status: 404 });
+  if (!id.success) return Response.json({ error: "Álbum não encontrado." }, { status: 404 });
 
   const access = await getPhotoAccess(id.data);
   if (access.status !== "ok") return photoAccessResponse(access.status);

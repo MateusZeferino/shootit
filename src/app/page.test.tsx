@@ -1,20 +1,14 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { redirect } from "next/navigation";
+import { describe, expect, it, vi } from "vitest";
 
-import Home from "@/app/page";
+import RootPage from "@/app/page";
 
-describe("home page", () => {
-  it("presents the core Shootit value proposition", () => {
-    render(<Home />);
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
-    expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: /suas fotos organizadas/i,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /criar minha conta/i }),
-    ).toHaveAttribute("href", "/cadastro");
+describe("root page", () => {
+  it("redirects to login instead of rendering a landing page", () => {
+    RootPage();
+
+    expect(redirect).toHaveBeenCalledExactlyOnceWith("/login");
   });
 });

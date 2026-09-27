@@ -23,7 +23,8 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
   const userId = created.data.user!.id;
 
   try {
-    await page.goto("/login");
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login$/);
     await page.getByRole("textbox", { name: "E-mail" }).fill(email);
     await page.getByLabel("Senha").fill(password);
     await page.getByRole("button", { name: "Entrar" }).click();
@@ -92,7 +93,9 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
 
     const manifest = await page.request.get("/manifest.webmanifest");
     expect(manifest.ok()).toBe(true);
-    expect((await manifest.json()).icons).toHaveLength(3);
+    const manifestData = await manifest.json();
+    expect(manifestData.start_url).toBe("/login");
+    expect(manifestData.icons).toHaveLength(3);
     const worker = await page.request.get("/sw.js");
     expect(worker.ok()).toBe(true);
     expect(worker.headers()["cache-control"]).toContain("no-store");

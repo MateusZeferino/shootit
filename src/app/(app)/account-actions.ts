@@ -46,7 +46,7 @@ export async function deleteAccount(
 
   const admin = createAdminClient();
   try {
-    await deleteUserPhotos(admin.storage, userId);
+    await deleteUserPhotos(userId);
   } catch {
     return { error: "A conta foi mantida, mas algumas fotos podem ter sido removidas. Tente novamente." };
   }

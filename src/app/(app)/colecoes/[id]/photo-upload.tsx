@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState, type ChangeEvent } from "react";
 
-import { sendPhotoTus } from "@/lib/photos/tus-upload";
-import { detectImageMimeType, SIMPLE_UPLOAD_MAX_BYTES, validatePhotoFile } from "@/lib/photos/validation";
+import { sendPhotoR2 } from "@/lib/photos/r2-upload";
+import { detectImageMimeType, validatePhotoFile } from "@/lib/photos/validation";
 
 type UploadItem = {
   id: string;
@@ -13,27 +13,6 @@ type UploadItem = {
   progress: number;
   error?: string;
 };
-
-function sendPhoto(collectionId: string, item: UploadItem, onProgress: (value: number) => void) {
-  return new Promise<void>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", `/api/colecoes/${collectionId}/fotos`);
-    request.responseType = "json";
-    request.timeout = 120_000;
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
-    };
-    request.onerror = () => reject(new Error(navigator.onLine ? "Falha de conexão. Tente novamente." : "Sem conexão. Reconecte-se para enviar fotos."));
-    request.ontimeout = () => reject(new Error("O envio demorou demais. Tente novamente."));
-    request.onload = () => {
-      if (request.status === 201) resolve();
-      else reject(new Error(request.response?.error ?? "Não foi possível enviar a imagem."));
-    };
-    const body = new FormData();
-    body.append("file", item.file);
-    request.send(body);
-  });
-}
 
 export function PhotoUpload({ collectionId }: { collectionId: string }) {
   const router = useRouter();
@@ -75,11 +54,7 @@ export function PhotoUpload({ collectionId }: { collectionId: string }) {
           throw new Error("O conteúdo do arquivo não corresponde ao formato informado.");
         }
         const onProgress = (progress: number) => updateItem(item.id, { progress });
-        if (item.file.size > SIMPLE_UPLOAD_MAX_BYTES) {
-          await sendPhotoTus(collectionId, item.file, onProgress);
-        } else {
-          await sendPhoto(collectionId, item, onProgress);
-        }
+        await sendPhotoR2(collectionId, item.file, onProgress);
         updateItem(item.id, { status: "concluído", progress: 100 });
         uploaded = true;
       } catch (error) {
@@ -98,7 +73,7 @@ export function PhotoUpload({ collectionId }: { collectionId: string }) {
   return (
     <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="text-xl font-semibold">Adicionar fotos</h2>
-      <p className="mt-2 text-sm text-slate-600">JPEG, PNG ou WebP, até 10 MiB por foto. Acima de 4 MiB, o envio é retomável.</p>
+      <p className="mt-2 text-sm text-slate-600">JPEG, PNG ou WebP, até 10 MiB por foto. O arquivo original é preservado para download.</p>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold hover:bg-stone-50 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
           Selecionar imagens

@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { detectImageMimeType, photoExtension, SIMPLE_UPLOAD_MAX_BYTES, validatePhotoFile } from "./validation";
+import { detectImageMimeType, photoExtension, validatePhotoFile } from "./validation";
 
 describe("photo validation", () => {
-  it("uses TUS above the 4 MiB simple-upload cutoff", () => {
-    expect(SIMPLE_UPLOAD_MAX_BYTES).toBe(4 * 1024 * 1024);
-  });
-
   it("accepts the supported formats and rejects unsafe or oversized files", () => {
     expect(validatePhotoFile({ type: "image/jpeg", size: 1024 })).toBeNull();
     expect(validatePhotoFile({ type: "image/png", size: 1024 })).toBeNull();

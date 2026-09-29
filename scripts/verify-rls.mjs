@@ -12,7 +12,6 @@ if (!url || !publicKey || !serviceKey) {
 const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 const visitor = createClient(url, publicKey, { auth: { persistSession: false } });
 const users = [];
-const paths = [];
 const image = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
   "base64",
@@ -76,11 +75,6 @@ try {
 
   const photoId = randomUUID();
   const path = `${a.id}/${collection.id}/${photoId}.png`;
-  const ownUpload = await a.client.storage.from("photos").upload(path, image, {
-    contentType: "image/png", upsert: false,
-  });
-  assert.ifError(ownUpload.error);
-  paths.push(path);
   const photo = await a.client.from("photos").insert({
     id: photoId, collection_id: collection.id, storage_path: path,
     mime_type: "image/png", file_size_bytes: image.length,
@@ -95,20 +89,13 @@ try {
     mime_type: "image/png", file_size_bytes: image.length,
   });
   assert.ok(forgedPhoto.error);
-  const signedByB = await b.client.storage.from("photos").createSignedUrl(path, 60);
-  assert.ok(signedByB.error);
-  const uploadByB = await b.client.storage.from("photos").upload(
-    `${a.id}/${collection.id}/${randomUUID()}.png`, image,
-    { contentType: "image/png", upsert: false },
-  );
-  assert.ok(uploadByB.error);
-  await b.client.storage.from("photos").remove([path]);
-  const stillExists = await a.client.storage.from("photos").exists(path);
-  assert.ifError(stillExists.error);
-  assert.equal(stillExists.data, true);
+  const deletePhotoByB = await b.client.from("photos").delete().eq("id", photoId).select("id");
+  assert.ok(deletePhotoByB.error || deletePhotoByB.data.length === 0);
+  const ownPhoto = await a.client.from("photos").select("id").eq("id", photoId);
+  assert.ifError(ownPhoto.error);
+  assert.equal(ownPhoto.data.length, 1);
 
-  console.log("OK: RLS e Storage isolam visitante e usuários A/B; grants bloqueiam alterações indevidas.");
+  console.log("OK: RLS isola visitante e usuários A/B; grants bloqueiam alterações indevidas.");
 } finally {
-  if (paths.length) await admin.storage.from("photos").remove(paths);
   for (const id of users) await admin.auth.admin.deleteUser(id);
 }

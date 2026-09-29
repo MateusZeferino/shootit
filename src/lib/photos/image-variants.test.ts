@@ -53,7 +53,7 @@ describe("createImageVariants", () => {
     await expect(createImageVariants(Buffer.from([0xff, 0xd8, 0xff]))).rejects.toBeInstanceOf(InvalidPhotoError);
   });
 
-  it("accepts a valid PNG with and without trailing TUS padding", async () => {
+  it("accepts a valid PNG with and without trailing padding", async () => {
     const tinyPng = await sharp({
       create: { width: 1, height: 1, channels: 4, background: "#ffffff" },
     })

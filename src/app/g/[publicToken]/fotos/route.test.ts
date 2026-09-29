@@ -1,3 +1,4 @@
+import { signDownload } from "@/lib/storage/r2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -5,6 +6,7 @@ import { GET } from "./route";
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/storage/r2", () => ({ signDownload: vi.fn(async (path: string) => `https://storage.example/${path}`) }));
 
 const token = "22222222-2222-4222-8222-222222222222";
 const albumId = "33333333-3333-4333-8333-333333333333";
@@ -28,15 +30,9 @@ function mockAdmin(photos: { id: string; storage_path: string }[], collection: {
     order: vi.fn().mockReturnThis(),
     range: vi.fn().mockResolvedValue({ data: photos, error: null }),
   };
-  const sign = vi.fn().mockImplementation(async (paths: string[]) => ({
-    data: paths.map((path) => path.endsWith("-thumb.webp") || path.endsWith("-preview.webp")
-      ? { path, error: "Object not found", signedUrl: null }
-      : { path, error: null, signedUrl: `https://storage.example/${path}` }).reverse(),
-    error: null,
-  }));
+  const sign = vi.mocked(signDownload);
   vi.mocked(createAdminClient).mockReturnValue({
     from: vi.fn((table) => table === "collections" ? collectionQuery : photoQuery),
-    storage: { from: vi.fn(() => ({ createSignedUrls: sign })) },
   } as never);
   return { collectionQuery, photoQuery, sign };
 }
@@ -63,7 +59,7 @@ describe("public photo pagination", () => {
     expect(photoQuery.range).not.toHaveBeenCalled();
   });
 
-  it("returns at most 24 photos with signed originals as fallback", async () => {
+  it("returns at most 24 photos with only compressed R2 images", async () => {
     const photos = Array.from({ length: 25 }, (_, index) => ({
       id: `photo-${index + 1}`,
       storage_path: `owner/${albumId}/photo-${index + 1}.jpg`,
@@ -78,17 +74,16 @@ describe("public photo pagination", () => {
     expect(collectionQuery.eq).toHaveBeenCalledWith("public_token", token);
     expect(photoQuery.eq).toHaveBeenCalledWith("collection_id", albumId);
     expect(photoQuery.range).toHaveBeenCalledWith(0, 24);
-    expect(sign).toHaveBeenCalledTimes(1);
-    expect(sign.mock.calls[0][0]).toHaveLength(72);
+    expect(sign).toHaveBeenCalledTimes(48);
     expect(result.hasMore).toBe(true);
     expect(result.photos).toHaveLength(24);
     expect(result.photos[0]).toEqual({
       id: "photo-1",
-      thumbnailUrl: null,
-      previewUrl: null,
-      originalUrl: `https://storage.example/owner/${albumId}/photo-1.jpg`,
+      thumbnailUrl: `https://storage.example/owner/${albumId}/photo-1-thumb.webp`,
+      previewUrl: `https://storage.example/owner/${albumId}/photo-1-preview.webp`,
     });
     expect(JSON.stringify(result)).not.toContain("storage_path");
+    expect(JSON.stringify(result)).not.toContain("originalUrl");
     expect(JSON.stringify(result)).not.toContain("photo-25");
   });
 });

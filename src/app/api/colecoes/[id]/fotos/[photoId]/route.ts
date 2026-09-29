@@ -30,8 +30,9 @@ export async function DELETE(
   if (readError) return Response.json({ error: "Não foi possível localizar a foto." }, { status: 500 });
   if (!photo) return Response.json({ error: "Foto não encontrada." }, { status: 404 });
 
-  const { error: storageError } = await removePhotoObjects(access.supabase.storage, photo.storage_path);
-  if (storageError) {
+  try {
+    await removePhotoObjects(photo.storage_path);
+  } catch {
     return Response.json({ error: "Não foi possível excluir o arquivo. Tente novamente." }, { status: 500 });
   }
 

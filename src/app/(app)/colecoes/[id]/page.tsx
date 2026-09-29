@@ -6,12 +6,11 @@ import { AppHeader } from "@/app/(app)/app-header";
 import { CollectionForm } from "@/app/(app)/collection-form";
 import { DeleteCollectionForm } from "@/app/(app)/delete-collection-form";
 import { CopyGalleryLink } from "@/app/(app)/copy-gallery-link";
-import { PhotoGallery, type GalleryPhoto } from "@/app/(app)/colecoes/[id]/photo-gallery";
+import { PhotoGallery } from "@/app/(app)/colecoes/[id]/photo-gallery";
 import { PhotoUpload } from "@/app/(app)/colecoes/[id]/photo-upload";
 import { requireUser } from "@/lib/auth/user";
 import { collectionIdSchema } from "@/lib/collections/validation";
-import { PHOTO_BUCKET, PHOTO_URL_TTL_SECONDS } from "@/lib/photos/validation";
-import { photoVariantPaths } from "@/lib/photos/variant-paths";
+import { signGalleryPhotos } from "@/lib/photos/signed-photos";
 
 const PHOTO_PAGE_SIZE = 24;
 
@@ -45,29 +44,7 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
   if (photosError || !batch) throw new Error("Não foi possível carregar as fotos.");
 
   const firstPage = batch.slice(0, PHOTO_PAGE_SIZE);
-  const photos: GalleryPhoto[] = [];
-  if (firstPage.length > 0) {
-    const paths = firstPage.flatMap((photo) => {
-      const variants = photoVariantPaths(photo.storage_path);
-      return [photo.storage_path, variants.thumbnail, variants.preview];
-    });
-    const { data: signed, error: signedError } = await supabase.storage
-      .from(PHOTO_BUCKET)
-      .createSignedUrls(paths, PHOTO_URL_TTL_SECONDS);
-    if (signedError || !signed || signed.length !== paths.length) {
-      throw new Error("Não foi possível preparar a visualização das fotos.");
-    }
-    const signedUrls = new Map(signed.map((item) => [item.path, item.error ? null : item.signedUrl]));
-    photos.push(...firstPage.map((photo) => {
-      const variants = photoVariantPaths(photo.storage_path);
-      return {
-        id: photo.id,
-        originalUrl: signedUrls.get(photo.storage_path) ?? null,
-        thumbnailUrl: signedUrls.get(variants.thumbnail) ?? null,
-        previewUrl: signedUrls.get(variants.preview) ?? null,
-      };
-    }));
-  }
+  const photos = await signGalleryPhotos(firstPage);
 
   return (
     <main className="min-h-screen bg-stone-50 px-6 py-6 sm:px-10">

@@ -1,29 +1,16 @@
 import "server-only";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { removeObjects, writeObject } from "@/lib/storage/r2";
+import { photoVariantPaths } from "./variant-paths";
 
-import { PHOTO_BUCKET } from "@/lib/photos/validation";
-import { photoVariantPaths } from "@/lib/photos/variant-paths";
-
-export async function uploadPhotoVariants(
-  storage: SupabaseClient["storage"],
-  originalPath: string,
-  variants: { thumbnail: Buffer; preview: Buffer },
-) {
+export async function uploadPhotoVariants(originalPath: string, variants: { thumbnail: Buffer; preview: Buffer }) {
   const paths = photoVariantPaths(originalPath);
-  const bucket = storage.from(PHOTO_BUCKET);
-
-  for (const variant of ["thumbnail", "preview"] as const) {
-    const { error } = await bucket.upload(paths[variant], variants[variant], {
-      contentType: "image/webp",
-      cacheControl: "3600",
-      upsert: false,
-    });
-    if (error) throw new Error("Não foi possível salvar a versão otimizada da foto.");
-  }
+  // Deterministic derivatives of the immutable original can be retried safely.
+  await writeObject(paths.thumbnail, variants.thumbnail, "image/webp");
+  await writeObject(paths.preview, variants.preview, "image/webp");
 }
 
-export async function removePhotoObjects(storage: SupabaseClient["storage"], originalPath: string) {
+export async function removePhotoObjects(originalPath: string) {
   const paths = photoVariantPaths(originalPath);
-  return storage.from(PHOTO_BUCKET).remove([originalPath, paths.thumbnail, paths.preview]);
+  await removeObjects([originalPath, paths.thumbnail, paths.preview]);
 }

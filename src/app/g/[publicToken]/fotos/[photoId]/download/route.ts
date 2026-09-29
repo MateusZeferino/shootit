@@ -1,5 +1,6 @@
 import { collectionIdSchema } from "@/lib/collections/validation";
-import { PHOTO_BUCKET, photoExtension } from "@/lib/photos/validation";
+import { photoExtension } from "@/lib/photos/validation";
+import { signDownload } from "@/lib/storage/r2";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -52,17 +53,13 @@ export async function GET(
   if (!extension) {
     return new Response("Arquivo indisponível.", { status: 500, headers: NO_STORE_HEADERS });
   }
-  const { data, error } = await admin.storage.from(PHOTO_BUCKET).createSignedUrl(
-    photo.storage_path,
-    DOWNLOAD_URL_TTL_SECONDS,
-    { download: `foto-${photo.id}.${extension}` },
-  );
-  if (error || !data) {
+  try {
+    const url = await signDownload(photo.storage_path, DOWNLOAD_URL_TTL_SECONDS, `foto-${photo.id}.${extension}`);
+    return new Response(null, {
+      status: 302,
+      headers: { ...NO_STORE_HEADERS, Location: url },
+    });
+  } catch {
     return new Response("Não foi possível preparar o download.", { status: 500, headers: NO_STORE_HEADERS });
   }
-
-  return new Response(null, {
-    status: 302,
-    headers: { ...NO_STORE_HEADERS, Location: data.signedUrl },
-  });
 }

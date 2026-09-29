@@ -9,7 +9,7 @@ import {
   collectionNameSchema,
   type CollectionFormState,
 } from "@/lib/collections/validation";
-import { PHOTO_BUCKET } from "@/lib/photos/validation";
+import { removeUserObjects } from "@/lib/storage/r2";
 
 function parseCollectionId(value: FormDataEntryValue | null): string {
   const parsed = collectionIdSchema.safeParse(value);
@@ -88,21 +88,10 @@ export async function deleteCollection(
   if (collectionError) return { error: "Não foi possível verificar o álbum. Tente novamente." };
   if (!collection) notFound();
 
-  const prefix = `${userId}/${id}`;
-  while (true) {
-    const { data: objects, error: listError } = await supabase.storage
-      .from(PHOTO_BUCKET)
-      .list(prefix, { limit: 100 });
-    if (listError || !objects) {
-      return { error: "Não foi possível listar as fotos do álbum. Tente novamente." };
-    }
-    if (objects.length === 0) break;
-    const { error: storageError } = await supabase.storage
-      .from(PHOTO_BUCKET)
-      .remove(objects.map((object) => `${prefix}/${object.name}`));
-    if (storageError) {
-      return { error: "Não foi possível remover todos os arquivos. Tente novamente." };
-    }
+  try {
+    await removeUserObjects(userId, id);
+  } catch {
+    return { error: "Não foi possível remover todos os arquivos. Tente novamente." };
   }
 
   const { data, error } = await supabase

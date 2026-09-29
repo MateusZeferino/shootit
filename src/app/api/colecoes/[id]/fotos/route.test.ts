@@ -1,3 +1,4 @@
+import { signDownload } from "@/lib/storage/r2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPhotoAccess } from "@/lib/photos/access";
@@ -13,6 +14,7 @@ vi.mock("@/lib/photos/image-variants", () => ({
   InvalidPhotoError: class extends Error {},
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/storage/r2", () => ({ signDownload: vi.fn(async (path: string) => `https://storage.example/${path}`) }));
 
 const albumId = "33333333-3333-4333-8333-333333333333";
 
@@ -30,19 +32,9 @@ function mockAccess(rows: { id: string; storage_path: string }[]) {
     order: vi.fn().mockReturnThis(),
     range: vi.fn().mockResolvedValue({ data: rows, error: null }),
   };
-  const sign = vi.fn().mockImplementation(async (paths: string[]) => ({
-    data: paths.map((path) => ({
-      path,
-      error: path.endsWith("-thumb.webp") || path.endsWith("-preview.webp") ? "Missing" : null,
-      signedUrl: path.endsWith("-thumb.webp") || path.endsWith("-preview.webp")
-        ? null
-        : `https://storage.example/${path}`,
-    })).reverse(),
-    error: null,
-  }));
+  const sign = vi.mocked(signDownload);
   const supabase = {
     from: vi.fn(() => query),
-    storage: { from: vi.fn(() => ({ createSignedUrls: sign })) },
   };
   vi.mocked(getPhotoAccess).mockResolvedValue({ status: "ok", userId: "owner", supabase } as never);
   return { query, sign };
@@ -86,16 +78,16 @@ describe("authenticated photo pagination", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(query.eq).toHaveBeenCalledWith("collection_id", albumId);
     expect(query.range).toHaveBeenCalledWith(0, 24);
-    expect(sign.mock.calls[0][0]).toHaveLength(72);
+    expect(sign).toHaveBeenCalledTimes(48);
     expect(body.photos).toHaveLength(24);
     expect(body.hasMore).toBe(true);
     expect(body.photos[0]).toEqual({
       id: "photo-1",
-      originalUrl: `https://storage.example/owner/${albumId}/photo-1.jpg`,
-      thumbnailUrl: null,
-      previewUrl: null,
+      thumbnailUrl: `https://storage.example/owner/${albumId}/photo-1-thumb.webp`,
+      previewUrl: `https://storage.example/owner/${albumId}/photo-1-preview.webp`,
     });
     expect(JSON.stringify(body)).not.toContain("storage_path");
+    expect(JSON.stringify(body)).not.toContain("originalUrl");
     expect(JSON.stringify(body)).not.toContain("photo-25");
   });
 });

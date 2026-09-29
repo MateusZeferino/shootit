@@ -8,7 +8,6 @@ export type PublicPhoto = {
   id: string;
   thumbnailUrl: string | null;
   previewUrl: string | null;
-  originalUrl: string | null;
 };
 
 type PhotoPageResponse = { photos: PublicPhoto[]; hasMore: boolean };
@@ -126,7 +125,7 @@ export function PublicPhotoGallery({
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
         {loadedPhotos.map((photo, index) => (
           <li className="overflow-hidden rounded-2xl bg-white shadow-sm" key={photo.id}>
-            {photo.thumbnailUrl || photo.originalUrl ? (
+            {photo.thumbnailUrl || photo.previewUrl ? (
               <button
                 aria-label={`Ampliar foto ${index + 1}`}
                 className="block aspect-square w-full overflow-hidden bg-stone-100"
@@ -136,9 +135,9 @@ export function PublicPhotoGallery({
                 <PublicImage
                   alt={`Foto ${index + 1} de ${collectionName}`}
                   className="h-full w-full object-cover"
-                  fallbackUrl={photo.originalUrl}
+                  fallbackUrl={photo.previewUrl}
                   fetchPriority={index === 0 ? "high" : undefined}
-                  key={`${photo.thumbnailUrl}:${photo.originalUrl}`}
+                  key={`${photo.thumbnailUrl}:${photo.previewUrl}`}
                   loading={index < 4 ? "eager" : "lazy"}
                   primaryUrl={photo.thumbnailUrl}
                 />
@@ -164,7 +163,7 @@ export function PublicPhotoGallery({
         </div>
       )}
       {loadError && <p className="mt-3 text-center text-sm text-red-700" role="alert">{loadError}</p>}
-      {selectedPhoto && (selectedPhoto.previewUrl || selectedPhoto.originalUrl) && (
+      {selectedPhoto && (selectedPhoto.previewUrl || selectedPhoto.thumbnailUrl) && (
         <div
           aria-label="Visualização ampliada"
           aria-modal="true"
@@ -183,8 +182,8 @@ export function PublicPhotoGallery({
             <PublicImage
               alt={`Foto ampliada de ${collectionName}`}
               className="max-h-full max-w-full object-contain"
-              fallbackUrl={selectedPhoto.originalUrl}
-              key={`${selectedPhoto.id}:${selectedPhoto.previewUrl}:${selectedPhoto.originalUrl}`}
+              fallbackUrl={selectedPhoto.thumbnailUrl}
+              key={`${selectedPhoto.id}:${selectedPhoto.previewUrl}:${selectedPhoto.thumbnailUrl}`}
               primaryUrl={selectedPhoto.previewUrl}
             />
           </div>

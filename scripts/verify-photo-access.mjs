@@ -2,221 +2,125 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { createR2Client, deleteR2Prefix, listR2Objects } from "./r2-client.mjs";
 
+const appUrl = process.argv[2] ?? "http://localhost:3000";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !publicKey || !serviceKey) {
-  throw new Error("Configure as credenciais em .env.local antes deste teste.");
-}
-
-const admin = createClient(url, serviceKey);
+if (!url || !publicKey || !serviceKey) throw new Error("Configure .env.local antes do teste.");
+const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+const r2 = createR2Client();
 const users = [];
-const paths = [];
-const collections = [];
-const appUrl = process.argv[2];
-const image = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
-  "base64",
-);
+const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64");
 
-async function createTestUser(suffix) {
-  const email = `photo-test-${randomUUID()}-${suffix}@example.invalid`;
-  const password = `${randomUUID()}Aa1!`;
-  const { data, error } = await admin.auth.admin.createUser({
-    email, password, email_confirm: true, user_metadata: { name: "Photo Test" },
-  });
-  assert.ifError(error);
-  users.push(data.user.id);
-  const client = createClient(url, publicKey);
-  const signedIn = await client.auth.signInWithPassword({ email, password });
-  assert.ifError(signedIn.error);
-  return { client, id: data.user.id, email, password };
-}
-
-async function uploadPhoto(client, userId, collectionId) {
-  const id = randomUUID();
-  const path = `${userId}/${collectionId}/${id}.png`;
-  const { error: uploadError } = await client.storage.from("photos").upload(path, image, {
-    contentType: "image/png", upsert: false,
-  });
-  assert.ifError(uploadError);
-  paths.push(path);
-  const { error: insertError } = await client.from("photos").insert({
-    id, collection_id: collectionId, storage_path: path,
-    mime_type: "image/png", file_size_bytes: image.length,
-  });
-  assert.ifError(insertError);
-  return { id, path };
-}
-
-async function appCookies(email, password) {
-  const cookies = new Map();
+async function user() {
+  const email = `r2-test-${randomUUID()}@example.invalid`, password = `${randomUUID()}Aa1!`;
+  const created = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name: "Teste R2 temporário" } });
+  assert.ifError(created.error);
+  users.push(created.data.user.id);
+  const jar = new Map();
   const client = createServerClient(url, publicKey, {
     cookies: {
-      getAll: () => [...cookies].map(([name, value]) => ({ name, value })),
-      setAll: (items) => items.forEach(({ name, value }) => cookies.set(name, value)),
+      getAll: () => [...jar].map(([name, value]) => ({ name, value })),
+      setAll: (items) => items.forEach(({ name, value }) => jar.set(name, value)),
     },
   });
-  const { error } = await client.auth.signInWithPassword({ email, password });
-  assert.ifError(error);
-  return [...cookies].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ");
+  assert.ifError((await client.auth.signInWithPassword({ email, password })).error);
+  const cookie = [...jar].map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("; ");
+  const album = await client.from("collections").insert({ name: "Álbum R2 temporário" }).select("id,public_token").single();
+  assert.ifError(album.error);
+  return { id: created.data.user.id, client, cookie, album: album.data };
+}
+
+async function call(path, owner, method = "GET", data, origin = appUrl) {
+  return fetch(`${appUrl}${path}`, {
+    method, redirect: "manual",
+    headers: { "Content-Type": "application/json", Origin: origin, ...(owner ? { Cookie: owner.cookie } : {}) },
+    ...(data ? { body: JSON.stringify(data) } : {}),
+  });
 }
 
 try {
-  const a = await createTestUser("a");
-  const b = await createTestUser("b");
-  const { data: collection, error: collectionError } = await a.client
-    .from("collections").insert({ name: "Stage 4 test" }).select("id").single();
-  assert.ifError(collectionError);
-  collections.push({ userId: a.id, id: collection.id });
+  const a = await user(), b = await user();
+  const base = `/api/colecoes/${a.album.id}/fotos`;
+  const metadata = { size: image.length, mimeType: "image/png" };
+  assert.equal((await call(`${base}/preparar`, null, "POST", metadata)).status, 401);
+  assert.equal((await call(`${base}/preparar`, b, "POST", metadata)).status, 404);
+  assert.equal((await call(`${base}?offset=0`, b)).status, 404);
+  assert.equal((await call(`${base}/preparar`, a, "POST", metadata, "https://attacker.invalid")).status, 403);
+  assert.equal((await call(`${base}/preparar`, a, "POST", { ...metadata, mimeType: "image/svg+xml" })).status, 400);
+  assert.equal((await call(`${base}/preparar`, a, "POST", { ...metadata, size: 10 * 1024 * 1024 + 1 })).status, 400);
 
-  const photo = await uploadPhoto(a.client, a.id, collection.id);
-  const ownPhotos = await a.client.from("photos").select("id").eq("collection_id", collection.id);
-  assert.ifError(ownPhotos.error);
-  assert.equal(ownPhotos.data.length, 1);
+  const prepared = await call(`${base}/preparar`, a, "POST", metadata);
+  assert.equal(prepared.status, 200);
+  const { uploadUrl, ticket } = await prepared.json();
+  const altered = await call(`${base}/finalizar`, a, "POST", { ticket: ticket + "changed" });
+  assert.equal(altered.status, 400);
+  const otherAlbum = await call(`/api/colecoes/${b.album.id}/fotos/finalizar`, b, "POST", { ticket });
+  assert.equal(otherAlbum.status, 400);
+  const wrongMime = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: image });
+  assert.equal(wrongMime.ok, false);
+  const beforeUpload = await a.client.from("photos").select("id").eq("collection_id", a.album.id);
+  assert.equal(beforeUpload.data.length, 0);
+  assert.ok((await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: image })).ok);
+  const finalized = await call(`${base}/finalizar`, a, "POST", { ticket });
+  assert.equal(finalized.status, 201);
+  const { id: photoId } = await finalized.json();
+  assert.equal((await call(`${base}/finalizar`, a, "POST", { ticket })).status, 200);
+  const rows = await a.client.from("photos").select("id,storage_path").eq("collection_id", a.album.id);
+  assert.equal(rows.data.length, 1);
+  const path = rows.data[0].storage_path;
+  const stored = await r2.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET, Key: path }));
+  assert.deepEqual(Buffer.from(await stored.Body.transformToByteArray()), image);
+  assert.equal((await listR2Objects(r2, `${a.id}/`)).length, 3);
 
-  const foreignPhotos = await b.client.from("photos").select("id").eq("collection_id", collection.id);
-  assert.ifError(foreignPhotos.error);
-  assert.equal(foreignPhotos.data.length, 0);
-  const foreignInsert = await b.client.from("photos").insert({
-    id: randomUUID(), collection_id: collection.id,
-    storage_path: `${b.id}/${collection.id}/${randomUUID()}.png`,
-    mime_type: "image/png", file_size_bytes: image.length,
-  });
-  assert.ok(foreignInsert.error);
-  const foreignUpload = await b.client.storage.from("photos").upload(
-    `${a.id}/${collection.id}/${randomUUID()}.png`, image, { contentType: "image/png", upsert: false },
-  );
-  assert.ok(foreignUpload.error);
-  await b.client.storage.from("photos").remove([photo.path]);
-  const ownSigned = await a.client.storage.from("photos").createSignedUrl(photo.path, 300);
-  assert.ifError(ownSigned.error);
-  assert.ok(ownSigned.data.signedUrl);
-  const foreignSigned = await b.client.storage.from("photos").createSignedUrl(photo.path, 300);
-  assert.ok(foreignSigned.error);
+  // Replaying the temporary PUT must never change the finalized original.
+  assert.ok((await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: Buffer.alloc(image.length) })).ok);
+  assert.equal((await call(`${base}/finalizar`, a, "POST", { ticket })).status, 200);
+  const unchanged = await r2.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET, Key: path }));
+  assert.deepEqual(Buffer.from(await unchanged.Body.transformToByteArray()), image);
 
-  const remove = await a.client.storage.from("photos").remove([photo.path]);
-  assert.ifError(remove.error);
-  const deletePhoto = await a.client.from("photos").delete().eq("id", photo.id);
-  assert.ifError(deletePhoto.error);
-
-  const cascading = await uploadPhoto(a.client, a.id, collection.id);
-  const removeForCollection = await a.client.storage.from("photos").remove([cascading.path]);
-  assert.ifError(removeForCollection.error);
-  const deleteCollection = await a.client.from("collections").delete().eq("id", collection.id);
-  assert.ifError(deleteCollection.error);
-  const remaining = await admin.from("photos").select("id").eq("id", cascading.id);
-  assert.ifError(remaining.error);
-  assert.equal(remaining.data.length, 0);
-  const objects = await admin.storage.from("photos").list(`${a.id}/${collection.id}`);
-  assert.ifError(objects.error);
-  assert.equal(objects.data.length, 0);
-
-  if (appUrl) {
-    const email = `photo-http-${randomUUID()}@example.invalid`;
-    const password = `${randomUUID()}Aa1!`;
-    const created = await admin.auth.admin.createUser({
-      email, password, email_confirm: true, user_metadata: { name: "Photo Test" },
-    });
-    assert.ifError(created.error);
-    users.push(created.data.user.id);
-    const cookies = await appCookies(email, password);
-    const httpClient = createClient(url, publicKey);
-    const signedIn = await httpClient.auth.signInWithPassword({ email, password });
-    assert.ifError(signedIn.error);
-    const newCollection = await httpClient.from("collections")
-      .insert({ name: "Stage 4 HTTP test" }).select("id").single();
-    assert.ifError(newCollection.error);
-    collections.push({ userId: created.data.user.id, id: newCollection.data.id });
-    const endpoint = `${appUrl}/api/colecoes/${newCollection.data.id}/fotos`;
-    const unauthenticated = await fetch(endpoint, { method: "POST", headers: { Origin: appUrl } });
-    assert.equal(unauthenticated.status, 401);
-    const badOrigin = await fetch(endpoint, {
-      method: "POST", headers: { Cookie: cookies, Origin: "https://other.invalid" },
-    });
-    assert.equal(badOrigin.status, 403);
-    const invalidBody = new FormData();
-    invalidBody.append("file", new Blob(["<svg></svg>"], { type: "image/svg+xml" }), "bad.svg");
-    const invalid = await fetch(endpoint, {
-      method: "POST", headers: { Cookie: cookies, Origin: appUrl }, body: invalidBody,
-    });
-    assert.equal(invalid.status, 400);
-    const body = new FormData();
-    body.append("file", new Blob([image], { type: "image/png" }), "tiny.png");
-    const response = await fetch(endpoint, {
-      method: "POST", headers: { Cookie: cookies, Origin: appUrl }, body,
-    });
-    const result = await response.json();
-    assert.equal(response.status, 201, JSON.stringify(result));
-    const row = await admin.from("photos").select("id,storage_path")
-      .eq("id", result.id).single();
-    assert.ifError(row.error);
-    paths.push(row.data.storage_path);
-    const rejectedAfterSuccess = await fetch(endpoint, {
-      method: "POST", headers: { Cookie: cookies, Origin: appUrl }, body: invalidBody,
-    });
-    assert.equal(rejectedAfterSuccess.status, 400);
-    const stillUploaded = await admin.from("photos").select("id").eq("id", result.id);
-    assert.ifError(stillUploaded.error);
-    assert.equal(stillUploaded.data.length, 1);
-    const secondBody = new FormData();
-    secondBody.append("file", new Blob([image], { type: "image/png" }), "second.png");
-    const secondResponse = await fetch(endpoint, {
-      method: "POST", headers: { Cookie: cookies, Origin: appUrl }, body: secondBody,
-    });
-    const secondResult = await secondResponse.json();
-    assert.equal(secondResponse.status, 201, JSON.stringify(secondResult));
-    const secondRow = await admin.from("photos").select("id,storage_path")
-      .eq("id", secondResult.id).single();
-    assert.ifError(secondRow.error);
-    paths.push(secondRow.data.storage_path);
-    const page = await fetch(`${appUrl}/colecoes/${newCollection.data.id}`, {
-      headers: { Cookie: cookies }, redirect: "manual",
-    });
-    assert.equal(page.status, 200);
-    const markup = await page.text();
-    assert.ok(markup.includes("Adicionar fotos"));
-    assert.ok(markup.includes("Ampliar foto"));
-    const foreignCookies = await appCookies(b.email, b.password);
-    const foreignDelete = await fetch(`${endpoint}/${secondResult.id}`, {
-      method: "DELETE", headers: { Cookie: foreignCookies, Origin: appUrl },
-    });
-    assert.equal(foreignDelete.status, 404);
-    const foreignResponse = await fetch(`${appUrl}/api/colecoes/${collection.id}/fotos`, {
-      method: "POST", headers: { Cookie: cookies, Origin: appUrl }, body: new FormData(),
-    });
-    assert.equal(foreignResponse.status, 404);
-    const deleted = await fetch(`${endpoint}/${result.id}`, {
-      method: "DELETE", headers: { Cookie: cookies, Origin: appUrl },
-    });
-    assert.equal(deleted.status, 200, await deleted.text());
-    const afterDelete = await admin.from("photos").select("id").eq("id", result.id);
-    assert.ifError(afterDelete.error);
-    assert.equal(afterDelete.data.length, 0);
-    const missingObject = await httpClient.storage.from("photos").remove([secondRow.data.storage_path]);
-    assert.ifError(missingObject.error);
-    const pageWithMissingObject = await fetch(`${appUrl}/colecoes/${newCollection.data.id}`, {
-      headers: { Cookie: cookies }, redirect: "manual",
-    });
-    assert.equal(pageWithMissingObject.status, 200);
-    assert.ok((await pageWithMissingObject.text()).includes("Arquivo indisponível"));
-    const secondDelete = await fetch(`${endpoint}/${secondResult.id}`, {
-      method: "DELETE", headers: { Cookie: cookies, Origin: appUrl },
-    });
-    assert.equal(secondDelete.status, 200, await secondDelete.text());
+  const publicPath = `/g/${a.album.public_token}`;
+  const gallery = await call(`${publicPath}/fotos?offset=0`);
+  assert.equal(gallery.status, 200);
+  const photos = (await gallery.json()).photos;
+  assert.equal(photos.length, 1);
+  assert.ok(!("originalUrl" in photos[0]));
+  for (const field of ["thumbnailUrl", "previewUrl"]) {
+    const response = await fetch(photos[0][field]);
+    assert.ok(response.ok);
+    assert.match(response.headers.get("content-type"), /image\/webp/);
   }
+  assert.equal((await call(`/g/${randomUUID()}/fotos?offset=0`)).status, 404);
+  assert.equal((await call(`/g/${b.album.public_token}/fotos/${photoId}/download`)).status, 404);
+  const download = await call(`${publicPath}/fotos/${photoId}/download`);
+  assert.equal(download.status, 302);
+  const original = await fetch(download.headers.get("location"));
+  assert.deepEqual(Buffer.from(await original.arrayBuffer()), image);
+  assert.match(original.headers.get("content-disposition"), /attachment/);
+  assert.equal((await call(`${base}/${photoId}`, b, "DELETE")).status, 404);
+  assert.equal((await call(`${base}/${photoId}`, null, "DELETE")).status, 401);
+  assert.equal((await call(`${base}/${photoId}`, a, "DELETE")).status, 200);
+  assert.equal((await listR2Objects(r2, `${a.id}/`)).length, 0);
 
-  console.log("OK: upload, RLS entre dois usuários, URLs assinadas, exclusões e rotas HTTP solicitadas.");
+  // An invalid second upload cannot undo a completed one or enter the database.
+  const invalidPrepared = await call(`${base}/preparar`, a, "POST", metadata);
+  const invalidTicket = await invalidPrepared.json();
+  await fetch(invalidTicket.uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: Buffer.alloc(image.length) });
+  assert.equal((await call(`${base}/finalizar`, a, "POST", { ticket: invalidTicket.ticket })).status, 400);
+  assert.equal((await listR2Objects(r2, `${a.id}/`)).length, 0);
+  console.log("OK: usuários A/B e visitante isolados; upload validado, repetição segura, WebP público, original íntegro e exclusão R2.");
+} catch (error) {
+  console.error("Falha no teste HTTP R2:", error.name);
+  if (error instanceof assert.AssertionError) console.error("Falha de asserção:", error.operator, error.actual, error.expected);
+  process.exitCode = 1;
 } finally {
-  if (paths.length) await admin.storage.from("photos").remove(paths);
-  for (const collection of collections) {
-    const listed = await admin.storage.from("photos").list(`${collection.userId}/${collection.id}`);
-    if (listed.data?.length) {
-      await admin.storage.from("photos").remove(
-        listed.data.map((object) => `${collection.userId}/${collection.id}/${object.name}`),
-      );
-    }
+  for (const id of users) {
+    await deleteR2Prefix(r2, `${id}/`);
+    const deleted = await admin.auth.admin.deleteUser(id);
+    if (deleted.error) { console.error("Falha ao limpar usuário temporário."); process.exitCode = 1; }
   }
-  for (const id of users) await admin.auth.admin.deleteUser(id);
+  r2.destroy();
 }

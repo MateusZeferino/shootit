@@ -2,8 +2,7 @@ import "server-only";
 
 import type { PublicPhoto } from "@/app/g/[publicToken]/public-photo-gallery";
 import { collectionIdSchema } from "@/lib/collections/validation";
-import { photoVariantPaths } from "@/lib/photos/variant-paths";
-import { PHOTO_BUCKET, PHOTO_URL_TTL_SECONDS } from "@/lib/photos/validation";
+import { signGalleryPhotos } from "@/lib/photos/signed-photos";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const PUBLIC_PHOTO_PAGE_SIZE = 24;
@@ -41,30 +40,7 @@ export async function loadPublicPhotoPage(publicToken: string, offset: number): 
     return { collectionName: collection.name, photos: [], hasMore: false };
   }
 
-  const paths = visiblePhotos.flatMap(({ storage_path }) => {
-    const { thumbnail, preview } = photoVariantPaths(storage_path);
-    return [thumbnail, preview, storage_path];
-  });
-  const { data: signed, error: signedError } = await admin.storage
-    .from(PHOTO_BUCKET)
-    .createSignedUrls(paths, PHOTO_URL_TTL_SECONDS);
-  if (signedError || !signed || signed.length !== paths.length) {
-    throw new Error("Não foi possível preparar as fotos da galeria.");
-  }
-
-  const signedUrls = new Map(signed.map((item) => [
-    item.path,
-    item.error ? null : item.signedUrl,
-  ]));
-  const photos: PublicPhoto[] = visiblePhotos.map((photo) => {
-    const { thumbnail, preview } = photoVariantPaths(photo.storage_path);
-    return {
-      id: photo.id,
-      thumbnailUrl: signedUrls.get(thumbnail) ?? null,
-      previewUrl: signedUrls.get(preview) ?? null,
-      originalUrl: signedUrls.get(photo.storage_path) ?? null,
-    };
-  });
+  const photos = await signGalleryPhotos(visiblePhotos);
 
   return { collectionName: collection.name, photos, hasMore: batch.length > PUBLIC_PHOTO_PAGE_SIZE };
 }

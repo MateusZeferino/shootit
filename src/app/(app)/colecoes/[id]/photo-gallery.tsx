@@ -9,7 +9,6 @@ export type GalleryPhoto = {
   id: string;
   thumbnailUrl: string | null;
   previewUrl: string | null;
-  originalUrl: string | null;
 };
 
 type PhotoPageResponse = { photos: GalleryPhoto[]; hasMore: boolean };
@@ -159,7 +158,7 @@ export function PhotoGallery({
         <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {visiblePhotos.map((photo, index) => (
             <li className="overflow-hidden rounded-2xl border border-slate-200 bg-white" key={photo.id}>
-              {photo.thumbnailUrl || photo.originalUrl ? (
+              {photo.thumbnailUrl || photo.previewUrl ? (
                 <button
                   aria-label={`Ampliar foto ${index + 1}`}
                   className="block aspect-square w-full overflow-hidden bg-stone-100"
@@ -174,11 +173,11 @@ export function PhotoGallery({
                     fetchPriority={index === 0 ? "high" : undefined}
                     loading={index < 4 ? "eager" : "lazy"}
                     onError={(event) => {
-                      if (photo.originalUrl && event.currentTarget.src !== photo.originalUrl) {
-                        event.currentTarget.src = photo.originalUrl;
+                      if (photo.previewUrl && event.currentTarget.src !== photo.previewUrl) {
+                        event.currentTarget.src = photo.previewUrl;
                       }
                     }}
-                    src={photo.thumbnailUrl ?? photo.originalUrl ?? undefined}
+                    src={photo.thumbnailUrl ?? photo.previewUrl ?? undefined}
                   />
                 </button>
               ) : (
@@ -212,7 +211,7 @@ export function PhotoGallery({
           </button>
         </div>
       )}
-      {(selectedPhoto?.previewUrl || selectedPhoto?.originalUrl) && (
+      {(selectedPhoto?.previewUrl || selectedPhoto?.thumbnailUrl) && (
         <div aria-label="Visualização ampliada" aria-modal="true" className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4" role="dialog">
           <button ref={closeButtonRef} className="self-end rounded-lg px-4 py-2 text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white" onClick={() => setSelectedId(null)} type="button">Fechar</button>
           <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -221,11 +220,11 @@ export function PhotoGallery({
               alt="Foto ampliada"
               className="max-h-full max-w-full object-contain"
               onError={(event) => {
-                if (selectedPhoto.originalUrl && event.currentTarget.src !== selectedPhoto.originalUrl) {
-                  event.currentTarget.src = selectedPhoto.originalUrl;
+                if (selectedPhoto.thumbnailUrl && event.currentTarget.src !== selectedPhoto.thumbnailUrl) {
+                  event.currentTarget.src = selectedPhoto.thumbnailUrl;
                 }
               }}
-              src={selectedPhoto.previewUrl ?? selectedPhoto.originalUrl ?? undefined}
+              src={selectedPhoto.previewUrl ?? selectedPhoto.thumbnailUrl ?? undefined}
             />
           </div>
         </div>

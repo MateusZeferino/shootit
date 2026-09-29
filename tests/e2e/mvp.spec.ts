@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
+import { createR2Client, deleteR2Prefix, listR2Objects, putR2Object } from "../../scripts/r2-client.mjs";
+
+const r2 = createR2Client();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -14,7 +17,7 @@ const tinyPng = Buffer.from(
   "base64",
 );
 
-test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ page, browser }) => {
+test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, browser }) => {
   const email = `e2e-${randomUUID()}@example.invalid`;
   const password = `${randomUUID()}Aa1!`;
   const created = await admin.auth.admin.createUser({
@@ -72,19 +75,18 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.goto(collectionUrl);
 
-    await page.locator('input[type="file"]').setInputFiles({
-      name: "pequena.png", mimeType: "image/png", buffer: tinyPng,
-    });
-    await page.getByRole("button", { name: "Enviar 1 foto" }).click();
-    await expect(page.getByRole("button", { name: "Ampliar foto 1" })).toBeVisible();
-
-    // The tiny valid PNG can contain trailing bytes; this exercises the TUS branch.
+    // The tiny valid PNG can contain trailing bytes; this exercises direct upload above the old server-body limit.
     const largePng = Buffer.concat([tinyPng, Buffer.alloc(4 * 1024 * 1024 + 1)]);
-    await page.locator('input[type="file"]').setInputFiles({
-      name: "grande.png", mimeType: "image/png", buffer: largePng,
-    });
-    await page.getByRole("button", { name: "Enviar 1 foto" }).click();
+    await page.locator('input[type="file"]').setInputFiles([
+      { name: "pequena.png", mimeType: "image/png", buffer: tinyPng },
+      { name: "corrompida.png", mimeType: "image/png", buffer: tinyPng.subarray(0, 12) },
+      { name: "grande.png", mimeType: "image/png", buffer: largePng },
+    ]);
+    await page.getByRole("button", { name: "Enviar 3 fotos" }).click();
     await expect(page.getByRole("button", { name: "Ampliar foto 2" })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("concluído", { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("list", { name: "Resultado dos uploads" })
+      .getByRole("listitem").filter({ hasText: "corrompida.png" })).toContainText("falhou");
 
     const uploadedPhotos = await admin.from("photos")
       .select("id,storage_path,file_size_bytes")
@@ -99,9 +101,8 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
       const stem = originalName.replace(/\.[^.]+$/, "");
       return [originalName, `${stem}-thumb.webp`, `${stem}-preview.webp`];
     };
-    const uploadedObjects = await admin.storage.from("photos").list(`${userId}/${collectionId}`);
-    expect(uploadedObjects.error).toBeNull();
-    expect(uploadedObjects.data?.map((object) => object.name).sort()).toEqual(
+    const uploadedObjects = await listR2Objects(r2, `${userId}/${collectionId}/`);
+    expect(uploadedObjects.map((object) => object.Key!.split("/").at(-1)).sort()).toEqual(
       uploadedPhotos.data!.flatMap((photo) => objectNamesFor(photo.storage_path)).sort(),
     );
 
@@ -199,37 +200,22 @@ test("fluxo autenticado, upload simples/TUS, compartilhamento e PWA", async ({ p
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Excluir foto" }).first().click();
     await expect(page.getByRole("button", { name: "Ampliar foto 2" })).toHaveCount(0);
-    const objectsAfterPhotoDeletion = await admin.storage.from("photos").list(`${userId}/${collectionId}`);
-    expect(objectsAfterPhotoDeletion.error).toBeNull();
-    expect(objectsAfterPhotoDeletion.data?.map((object) => object.name).sort()).toEqual(
+    const objectsAfterPhotoDeletion = await listR2Objects(r2, `${userId}/${collectionId}/`);
+    expect(objectsAfterPhotoDeletion.map((object) => object.Key!.split("/").at(-1)).sort()).toEqual(
       objectNamesFor(olderPhoto.storage_path).sort(),
     );
 
     const orphanPath = `${userId}/${collectionId}/${randomUUID()}.png`;
-    const orphan = await admin.storage.from("photos").upload(orphanPath, tinyPng, {
-      contentType: "image/png", upsert: false,
-    });
-    expect(orphan.error).toBeNull();
+    await putR2Object(r2, orphanPath, tinyPng);
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Excluir álbum" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
     const missingGallery = await page.request.get(galleryPath!);
     expect(missingGallery.status()).toBe(404);
-    const remainingObjects = await admin.storage.from("photos").list(`${userId}/${collectionId}`);
-    expect(remainingObjects.error).toBeNull();
-    expect(remainingObjects.data).toHaveLength(0);
+    const remainingObjects = await listR2Objects(r2, `${userId}/${collectionId}/`);
+    expect(remainingObjects).toHaveLength(0);
   } finally {
-    const collections = await admin.from("collections").select("id").eq("owner_id", userId);
-    if (collections.data) {
-      for (const collection of collections.data) {
-        const objects = await admin.storage.from("photos").list(`${userId}/${collection.id}`);
-        if (objects.data?.length) {
-          await admin.storage.from("photos").remove(
-            objects.data.map((object) => `${userId}/${collection.id}/${object.name}`),
-          );
-        }
-      }
-    }
+    await deleteR2Prefix(r2, `${userId}/`);
     await admin.auth.admin.deleteUser(userId);
   }
 });
@@ -256,10 +242,7 @@ test("exclusão da conta remove Auth, álbuns, fotos e objetos do Storage", asyn
     const galleryPath = `/g/${collection.data!.public_token}`;
     const photoId = randomUUID();
     storagePath = `${userId}/${collectionId}/${photoId}.png`;
-    const uploaded = await admin.storage.from("photos").upload(storagePath, tinyPng, {
-      contentType: "image/png", upsert: false,
-    });
-    expect(uploaded.error).toBeNull();
+    await putR2Object(r2, storagePath, tinyPng);
     const photo = await admin.from("photos").insert({
       id: photoId, collection_id: collectionId, storage_path: storagePath,
       mime_type: "image/png", file_size_bytes: tinyPng.length,
@@ -271,10 +254,7 @@ test("exclusão da conta remove Auth, álbuns, fotos e objetos do Storage", asyn
       .single();
     expect(secondCollection.error).toBeNull();
     orphanPath = `${userId}/${secondCollection.data!.id}/${randomUUID()}.png`;
-    const orphanUpload = await admin.storage.from("photos").upload(orphanPath, tinyPng, {
-      contentType: "image/png", upsert: false,
-    });
-    expect(orphanUpload.error).toBeNull();
+    await putR2Object(r2, orphanPath, tinyPng);
 
     const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
     if (!publishableKey) throw new Error("Configure a chave publicável para o E2E.");
@@ -304,7 +284,7 @@ test("exclusão da conta remove Auth, álbuns, fotos e objetos do Storage", asyn
       admin.from("profiles").select("id").eq("id", userId),
       admin.from("collections").select("id").eq("owner_id", userId),
       admin.from("photos").select("id").eq("id", photoId),
-      admin.storage.from("photos").list(userId),
+      listR2Objects(r2, `${userId}/`),
       page.request.get(galleryPath),
     ]);
     expect(profileRows.error).toBeNull();
@@ -313,22 +293,20 @@ test("exclusão da conta remove Auth, álbuns, fotos e objetos do Storage", asyn
     expect(collectionRows.data).toHaveLength(0);
     expect(photoRows.error).toBeNull();
     expect(photoRows.data).toHaveLength(0);
-    expect(objects.error).toBeNull();
-    expect(objects.data).toHaveLength(0);
+    expect(objects).toHaveLength(0);
     expect(gallery.status()).toBe(404);
 
     const account = await admin.auth.admin.getUserById(userId);
     expect(account.error).not.toBeNull();
-    const staleUpload = await oldSession.storage.from("photos").upload(storagePath, tinyPng, {
-      contentType: "image/png", upsert: false,
+    const staleUpload = await page.request.post(`/api/colecoes/${collectionId}/fotos/preparar`, {
+      data: { size: tinyPng.length, mimeType: "image/png" },
     });
-    expect(staleUpload.error).not.toBeNull();
+    expect(staleUpload.status()).toBe(401);
     const loginAgain = await oldSession.auth.signInWithPassword({ email, password });
     expect(loginAgain.error).not.toBeNull();
   } finally {
     if (!deleted) {
-      if (storagePath) await admin.storage.from("photos").remove([storagePath]);
-      if (orphanPath) await admin.storage.from("photos").remove([orphanPath]);
+      await deleteR2Prefix(r2, `${userId}/`);
       await admin.auth.admin.deleteUser(userId);
     }
   }

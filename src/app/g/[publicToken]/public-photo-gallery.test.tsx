@@ -12,7 +12,6 @@ const photo: PublicPhoto = {
   id: "photo-1",
   thumbnailUrl: "https://example.com/thumbnail.png",
   previewUrl: "https://example.com/preview.png",
-  originalUrl: "https://example.com/original.png",
 };
 
 describe("public photo gallery", () => {
@@ -36,14 +35,14 @@ describe("public photo gallery", () => {
     expect(thumbnail).toHaveAttribute("fetchpriority", "high");
     expect(thumbnail).toHaveAttribute("src", photo.thumbnailUrl);
     fireEvent.error(thumbnail);
-    expect(thumbnail).toHaveAttribute("src", photo.originalUrl);
+    expect(thumbnail).toHaveAttribute("src", photo.previewUrl);
     expect(screen.queryByRole("link", { name: "Baixar foto" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Ampliar foto 1" }));
     expect(screen.getByRole("dialog", { name: "Visualização ampliada" })).toBeInTheDocument();
     const enlarged = screen.getByRole("img", { name: "Foto ampliada de Ensaio" });
     expect(enlarged).toHaveAttribute("src", photo.previewUrl);
     fireEvent.error(enlarged);
-    expect(enlarged).toHaveAttribute("src", photo.originalUrl);
+    expect(enlarged).toHaveAttribute("src", photo.thumbnailUrl);
     const download = screen.getByRole("link", { name: "Baixar foto" });
     expect(download).toHaveAttribute("href", "/g/album-token/fotos/photo-1/download");
     fireEvent.keyDown(window, { key: "Tab" });

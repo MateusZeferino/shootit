@@ -10,7 +10,6 @@ const photo: GalleryPhoto = {
   id: "photo-1",
   thumbnailUrl: "https://example.com/thumb.webp",
   previewUrl: "https://example.com/preview.webp",
-  originalUrl: "https://example.com/original.jpg",
 };
 
 afterEach(() => {

@@ -1,94 +1,100 @@
 # Shootit
 
-MVP web/PWA para fotógrafos organizarem, publicarem e compartilharem galerias.
+MVP web/PWA para fotógrafos organizarem e compartilharem álbuns.
 
 ## Stack
 
-- Next.js 16 com App Router e TypeScript
-- React 19
-- Tailwind CSS 4
-- Supabase Auth, Postgres e Storage
+- Next.js 16 / React 19 / TypeScript / Tailwind CSS 4
+- Supabase Auth e Postgres: contas, álbuns, metadados e RLS
+- Cloudflare R2 privado: originais, miniaturas e prévias
+- Sharp: versões WebP de 640 px (miniatura) e 1600 px (visualização ampliada)
 - Vitest, Testing Library e Playwright
-
-## Requisitos
-
-- Node.js 20.9 ou superior
-- npm
-- Git
-- Um projeto Supabase
-- Docker apenas quando o ambiente Supabase local for utilizado
 
 ## Configuração
 
-1. Instale as dependencias com `npm install`.
-2. Copie `.env.example` para `.env.local`.
-3. Preencha as credenciais exibidas em **Supabase > Connect**.
-4. Execute a migration de `supabase/migrations` no projeto Supabase (SQL Editor ou CLI).
-5. Execute `npm run dev` e acesse `http://localhost:3000`.
+1. Use Node.js 22 ou superior e execute `npm ci`.
+2. Copie `.env.example` para `.env.local` e preencha as variáveis no formato `NOME=valor`.
+3. Aplique as migrations de `supabase/migrations` ao projeto Supabase.
+4. Crie um bucket R2 privado na classe Standard e um token S3 **Object Read & Write**, restrito a ele.
+5. Configure `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` e `R2_SECRET_ACCESS_KEY`.
+6. Em R2 → bucket → Settings → CORS Policy, configure:
 
-Nunca versione `.env.local` nem exponha `SUPABASE_SERVICE_ROLE_KEY` com o
-prefixo `NEXT_PUBLIC_`.
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://shootit-ivory.vercel.app",
+      "http://localhost:3000",
+      "https://localhost:3000"
+    ],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
 
-## Scripts
+Inclua a origem exata de qualquer domínio próprio ou preview que será usado.
+Mantenha o acesso público `r2.dev` e os domínios públicos do bucket desativados.
+CORS não substitui autorização; o backend emite URLs temporárias após validar o usuário/álbum ou o token público.
 
-- `npm run dev`: servidor de desenvolvimento
-- `npm run build`: build de produção
-- `npm run lint`: análise estática
-- `npm run typecheck`: geração de tipos de rotas e verificação TypeScript
-- `npm test`: testes unitarios
-- `npm run test:watch`: testes em modo interativo
-- `npm run check`: lint, tipos e testes em sequência
-- `npm run test:policies`: testa grants, RLS e Storage com visitante e dois usuários temporários
-- `npm run test:e2e`: testa o fluxo completo em navegador (execute `npm run build` antes)
-- `npm run check:bundle`: verifica se a chave administrativa não entrou no bundle do cliente
+Execute `npm run dev` e abra `http://localhost:3000`.
+Nunca versione `.env.local`. Credenciais administrativas e R2 são exclusivas do servidor,
+sem prefixo `NEXT_PUBLIC_`.
 
-## Estrutura
+## Fluxo das fotos
 
-- `src/app`: rotas, layouts e estados globais da interface
-- `src/lib/env.ts`: validação centralizada de variáveis de ambiente
-- `src/lib/supabase`: clientes de browser, servidor e administração
-- `supabase/migrations`: migrations SQL versionadas
-- `supabase/config.toml`: configuração do ambiente Supabase local
+- JPEG, PNG e WebP estáticos, até **10 MiB / 50 megapixels**.
+- O navegador envia os bytes originais direto ao R2 por PUT assinado (5 minutos),
+  com tipo e tamanho assinados. O corpo da imagem não passa pelo endpoint de upload da Vercel.
+- O caminho temporário fica em `usuario/album/pending/id.ext`.
+  Um comprovante assinado vincula usuário, álbum, ID, tipo, tamanho e validade de 15 minutos.
+- A finalização verifica os bytes, gera WebP e salva o original definitivo sem sobrescrita.
+  Repetir a URL de upload temporária não modifica o original já finalizado.
+- O banco recebe metadados somente depois que original e versões leves estão disponíveis.
+- A galeria recebe apenas miniaturas/prévias por URLs de 5 minutos.
+  O download valida álbum/foto e redireciona para o original com URL de 60 segundos.
+- A finalização pode ser repetida após falhas transitórias, sem duplicar registros.
+  Arquivos validados são preservados para essa tentativa; o temporário é removido após sucesso.
+- Exclusão de foto remove os três arquivos antes do registro.
+  Exclusão de álbum/conta remove também uploads incompletos sob seu prefixo.
+- Uploads são diretos, sem TUS; falhas durante a transferência exigem reenviar aquele arquivo.
+  O resultado de cada arquivo da fila é independente.
 
-## Status
+As tabelas e suas políticas RLS continuam no Supabase. As antigas migrations de Storage
+ficam no histórico, mas a aplicação e os testes atuais de fotos usam R2. Não existe migração
+automática de arquivos antigos nem dependência do bucket Supabase para novos uploads.
 
-A etapa 5 inclui galerias públicas em `/g/[publicToken]`, acessíveis sem login
-por quem possui o link. Os arquivos continuam no bucket privado `photos` e são
-exibidos por URLs temporárias. O banco guarda apenas metadados; a chave
-administrativa é utilizada somente no servidor.
+## Testes e operação
 
-Para verificar upload, RLS e exclusão com dois usuários temporários no Supabase
-configurado, execute `node --env-file=.env.local scripts/verify-photo-access.mjs`.
-Se o app estiver rodando na porta 3000, acrescente `http://localhost:3000` ao
-comando para também testar as rotas HTTP. O teste remove os dados que cria.
+- `npm run check`: lint, TypeScript e testes unitários.
+- `npm run test:r2`: conexão, CORS, PUT/GET assinados, original íntegro e expiração.
+- `npm run test:policies`: grants e RLS de perfis, álbuns e metadados com usuários A/B e visitante.
+- `npm run build`: build de produção.
+- `npm run check:bundle`: ausência das credenciais Supabase/R2 no JavaScript público.
+- `npm run test:e2e`: inicia o build local na porta 3000 e testa navegador,
+  upload, download original, galeria mobile/desktop, exclusão e PWA.
+- `npm run test:photo-access`: com app na porta 3000, testa autorização HTTP,
+  comprovantes adulterados, repetição de upload e exclusão no R2.
+  Aceita outra URL: `npm run test:photo-access -- https://seu-preview.example`.
+- `node --env-file=.env.local scripts/backfill-photo-variants.mjs`:
+  verifica versões WebP ausentes no R2; `--apply` gera somente as faltantes.
 
-Com o app rodando, valide a etapa 5 com
-`node --env-file=.env.local scripts/verify-public-gallery.mjs http://localhost:3000`.
-Esse teste cria e remove um usuário, duas coleções e uma foto temporários.
+Os testes reais criam e removem contas e arquivos próprios no Supabase/R2 configurados.
+No Windows, o E2E usa o Edge instalado; em outros sistemas, instale o Chromium do Playwright.
+O teste de CORS usa localhost:3000 e o domínio de produção listado acima.
 
-## Etapa 6
+## Publicação na Vercel
 
-O aplicativo tem manifesto, ícones, service worker mínimo e página offline.
-Somente a página offline, ícones e arquivos de `/_next/static/` entram no cache
-do service worker. O painel, as galerias, respostas da API, fotos e URLs assinadas
-exigem conexão. O upload usa o envio simples até 4 MiB e TUS acima disso;
-o limite total atual do bucket e da aplicação continua em 10 MiB por foto.
+Configure as três variáveis Supabase e as quatro variáveis R2 de `.env.example`
+no ambiente correspondente (Production/Preview), depois publique o código atualizado.
+Somente cadastrar as variáveis não troca o provedor usado por um build antigo.
+Mantenha as URLs do Supabase Auth e as origens CORS coerentes com o domínio publicado.
 
-Para testar localmente após configurar `.env.local`, execute, nesta ordem:
+O service worker guarda apenas shell offline, ícones e assets estáticos.
+Galerias, respostas pessoais, fotos e URLs assinadas exigem conexão e não entram no cache offline.
 
-1. `npm run check`
-2. `npm run test:policies`
-3. `npm run build`
-4. `npm run check:bundle`
-5. `npm run test:e2e`
-
-Os testes de políticas e E2E usam o projeto Supabase configurado e criam/removem
-usuários e arquivos temporários. Em Windows, o E2E usa Microsoft Edge instalado;
-em outros sistemas, instale o Chromium do Playwright antes de rodar o teste.
-
-Para publicar um preview, importe o repositório no Vercel e configure nele
-`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` e
-`SUPABASE_SERVICE_ROLE_KEY`. A última variável é secreta e nunca recebe o
-prefixo `NEXT_PUBLIC_`. Mantenha a confirmação de e-mail habilitada no Supabase
-e ajuste a URL do site no Supabase Auth para o domínio HTTPS usado no teste.
-Valide o fluxo E2E nesse endereço antes de promover para produção.
+Referências: [R2 S3](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/),
+[URLs assinadas](https://developers.cloudflare.com/r2/api/s3/presigned-urls/),
+[CORS](https://developers.cloudflare.com/r2/buckets/cors/).

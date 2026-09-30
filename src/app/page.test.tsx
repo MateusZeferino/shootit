@@ -6,9 +6,9 @@ import RootPage from "@/app/page";
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 describe("root page", () => {
-  it("redirects to login instead of rendering a landing page", () => {
+  it("opens the dashboard, which redirects visitors without a session to login", () => {
     RootPage();
 
-    expect(redirect).toHaveBeenCalledExactlyOnceWith("/login");
+    expect(redirect).toHaveBeenCalledExactlyOnceWith("/dashboard");
   });
 });

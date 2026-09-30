@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 import { readPublicEnv } from "@/lib/env";
+import { persistentSessionCookieOptions } from "@/lib/supabase/session-cookie";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -20,7 +21,7 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
+              cookieStore.set(name, value, persistentSessionCookieOptions(options));
             });
           } catch {
             // Server Components não podem gravar cookies. O proxy de sessão,

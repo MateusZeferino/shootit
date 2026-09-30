@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Shootit",
     short_name: "Shootit",
     description: "Organize e compartilhe suas galerias de fotografia.",
-    start_url: "/login",
+    start_url: "/",
     scope: "/",
     display: "standalone",
     background_color: "#fafaf9",

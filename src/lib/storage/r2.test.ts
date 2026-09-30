@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readR2Env, removeObjects, removeUserObjects, signDownload, signUpload } from "./r2";
+import { R2ConfigurationError, readR2Env, removeObjects, removeUserObjects, signDownload, signUpload } from "./r2";
 
 vi.mock("server-only", () => ({}));
 
@@ -29,7 +29,13 @@ describe("private R2 storage", () => {
   it("rejects invalid configuration without printing its value", () => {
     vi.stubEnv("R2_ENDPOINT", "https://credential-inside.invalid/path");
     expect(readR2Env).toThrow("R2_ENDPOINT");
-    try { readR2Env(); } catch (error) { expect(String(error)).not.toContain("credential-inside"); }
+    try {
+      readR2Env();
+    } catch (error) {
+      expect(error).toBeInstanceOf(R2ConfigurationError);
+      expect((error as R2ConfigurationError).fields).toEqual(["R2_ENDPOINT"]);
+      expect(String(error)).not.toContain("credential-inside");
+    }
   });
   it("removes every page only under the verified user/album prefix", async () => {
     const user = randomUUID(), album = randomUUID();

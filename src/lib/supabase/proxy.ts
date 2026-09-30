@@ -2,6 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { readPublicEnv } from "@/lib/env";
+import { persistentSessionCookieOptions } from "@/lib/supabase/session-cookie";
+
+function redirectWithSessionCookies(response: NextResponse, request: NextRequest, pathname: string) {
+  const redirect = NextResponse.redirect(new URL(pathname, request.url));
+  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  for (const name of ["cache-control", "expires", "pragma"]) {
+    const value = response.headers.get(name);
+    if (value) redirect.headers.set(name, value);
+  }
+  return redirect;
+}
 
 export async function updateSession(request: NextRequest) {
   const env = readPublicEnv();
@@ -18,7 +29,7 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            response.cookies.set(name, value, persistentSessionCookieOptions(options));
           });
           Object.entries(headers).forEach(([name, value]) => {
             response.headers.set(name, value);
@@ -29,15 +40,15 @@ export async function updateSession(request: NextRequest) {
   );
 
   const { data } = await supabase.auth.getClaims();
+  const isLoginPage = request.nextUrl.pathname === "/login";
 
   if (!data?.claims?.sub) {
-    const redirect = NextResponse.redirect(new URL("/login", request.url));
-    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
-    for (const name of ["cache-control", "expires", "pragma"]) {
-      const value = response.headers.get(name);
-      if (value) redirect.headers.set(name, value);
-    }
-    return redirect;
+    if (isLoginPage) return response;
+    return redirectWithSessionCookies(response, request, "/login");
+  }
+
+  if (isLoginPage) {
+    return redirectWithSessionCookies(response, request, "/dashboard");
   }
 
   return response;

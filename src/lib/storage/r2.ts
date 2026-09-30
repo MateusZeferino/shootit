@@ -21,11 +21,21 @@ const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().trim().min(1),
 });
 
+const r2EnvFields = ["R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] as const;
+
+export class R2ConfigurationError extends Error {
+  constructor(readonly fields: readonly string[]) {
+    super(`Configuração R2 inválida: ${fields.join(", ")}.`);
+    this.name = "R2ConfigurationError";
+  }
+}
+
 export function readR2Env() {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
-    const fields = [...new Set(result.error.issues.map((issue) => issue.path[0]))];
-    throw new Error(`Configuração R2 inválida: ${fields.join(", ")}.`);
+    const fields = r2EnvFields.filter((field) =>
+      result.error.issues.some((issue) => issue.path[0] === field));
+    throw new R2ConfigurationError(fields);
   }
   return result.data;
 }

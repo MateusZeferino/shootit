@@ -33,6 +33,24 @@ test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, brow
     await page.getByLabel("Senha").fill(password);
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
+    const authCookies = (await page.context().cookies()).filter(({ name }) => name.includes("-auth-token"));
+    expect(authCookies.length).toBeGreaterThan(0);
+    for (const cookie of authCookies) {
+      expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 6 * 24 * 60 * 60);
+      expect(cookie.expires).toBeLessThan(Date.now() / 1000 + 8 * 24 * 60 * 60);
+    }
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto("/login");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    const reopenedContext = await browser.newContext({ storageState: await page.context().storageState() });
+    try {
+      const reopenedPage = await reopenedContext.newPage();
+      await reopenedPage.goto("/");
+      await expect(reopenedPage).toHaveURL(/\/dashboard$/);
+    } finally {
+      await reopenedContext.close();
+    }
     await expect(page.getByRole("heading", { name: "Seus álbuns" })).toBeVisible();
     await expect(page.getByText("Seja bem-vindo, Teste E2E")).toBeVisible();
     await expect(page.getByText("Seu primeiro álbum começa aqui")).toBeVisible();
@@ -166,7 +184,7 @@ test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, brow
     const manifest = await page.request.get("/manifest.webmanifest");
     expect(manifest.ok()).toBe(true);
     const manifestData = await manifest.json();
-    expect(manifestData.start_url).toBe("/login");
+    expect(manifestData.start_url).toBe("/");
     expect(manifestData.icons).toHaveLength(3);
     const worker = await page.request.get("/sw.js");
     expect(worker.ok()).toBe(true);
@@ -214,6 +232,10 @@ test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, brow
     expect(missingGallery.status()).toBe(404);
     const remainingObjects = await listR2Objects(r2, `${userId}/${collectionId}/`);
     expect(remainingObjects).toHaveLength(0);
+    await page.getByRole("button", { name: "Sair" }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login$/);
   } finally {
     await deleteR2Prefix(r2, `${userId}/`);
     await admin.auth.admin.deleteUser(userId);

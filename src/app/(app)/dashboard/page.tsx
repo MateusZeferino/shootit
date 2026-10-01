@@ -16,7 +16,7 @@ export default async function DashboardPage() {
     supabase.from("profiles").select("name").eq("id", userId).single(),
     supabase
       .from("collections")
-      .select("id,name,public_token")
+      .select("id,name,public_token,is_active")
       .eq("owner_id", userId)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })

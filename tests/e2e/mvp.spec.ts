@@ -124,6 +124,40 @@ test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, brow
       uploadedPhotos.data!.flatMap((photo) => objectNamesFor(photo.storage_path)).sort(),
     );
 
+    const sharingSwitch = page.getByRole("switch", { name: "Compartilhamento público" });
+    await expect(sharingSwitch).toHaveAttribute("aria-checked", "true");
+    await sharingSwitch.click();
+    await expect(page.getByText("Inativo", { exact: true })).toBeVisible();
+    await expect(sharingSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText("O álbum continua disponível para você, mas o compartilhamento público está desativado."))
+      .toBeVisible();
+    await expect(page.locator('a[href^="/g/"]')).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toBeAttached();
+    await expect(page.getByRole("button", { name: "Ampliar foto 1" })).toBeVisible();
+
+    const inactiveGallery = await page.request.get(galleryPath!);
+    expect(inactiveGallery.status()).toBe(200);
+    expect(await inactiveGallery.text()).toContain("Álbum indisponível");
+    expect(await inactiveGallery.text()).not.toContain(`${newestPhoto.id}-thumb.webp`);
+    const inactivePagination = await page.request.get(`${galleryPath}/fotos?offset=0`);
+    expect(inactivePagination.status()).toBe(403);
+    const inactiveDownload = await page.request.get(`${galleryPath}/fotos/${newestPhoto.id}/download`);
+    expect(inactiveDownload.status()).toBe(403);
+
+    await sharingSwitch.click();
+    await expect(page.getByText("Ativo", { exact: true })).toBeVisible();
+    await expect(sharingSwitch).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator(`a[href="${galleryPath}"]`)).toBeVisible();
+    const persistedStatus = await admin.from("collections")
+      .select("is_active,public_token")
+      .eq("id", collectionId)
+      .single();
+    expect(persistedStatus.error).toBeNull();
+    expect(persistedStatus.data).toEqual({
+      is_active: true,
+      public_token: galleryPath!.split("/").at(-1),
+    });
+
     await page.goto(galleryPath!);
     await expect(page.getByRole("heading", { name: "Galeria E2E" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -205,9 +239,7 @@ test("fluxo autenticado, upload R2, compartilhamento e PWA", async ({ page, brow
       return entries.flat();
     });
     expect(cachedPaths).toContain("/offline.html");
-    expect(cachedPaths.every((path) =>
-      path === "/offline.html" || path.startsWith("/icon-") || path.startsWith("/_next/static/"),
-    )).toBe(true);
+    expect(cachedPaths.every((path) => path === "/offline.html" || path.startsWith("/icon-"))).toBe(true);
 
     await page.context().setOffline(true);
     await page.goto("/dashboard");

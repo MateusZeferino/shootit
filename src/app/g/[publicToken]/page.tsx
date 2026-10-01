@@ -15,6 +15,19 @@ export default async function PublicGalleryPage({ params }: PageProps<"/g/[publi
   const { publicToken } = await params;
   const photoPage = await loadPublicPhotoPage(publicToken, 0);
   if (!photoPage) notFound();
+  if (photoPage.status === "inactive") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 py-8 sm:px-8">
+        <section className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm sm:p-12">
+          <p className="text-sm font-medium uppercase tracking-widest text-slate-500">Galeria compartilhada</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Álbum indisponível</h1>
+          <p className="mt-4 leading-7 text-slate-600">
+            O compartilhamento deste álbum está desativado no momento.
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-8 sm:px-8">

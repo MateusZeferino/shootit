@@ -7,11 +7,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const PUBLIC_PHOTO_PAGE_SIZE = 24;
 
-export type PublicPhotoPage = {
-  collectionName: string;
-  photos: PublicPhoto[];
-  hasMore: boolean;
-};
+export type PublicPhotoPage =
+  | { status: "inactive" }
+  | {
+    status: "active";
+    collectionName: string;
+    photos: PublicPhoto[];
+    hasMore: boolean;
+  };
 
 export async function loadPublicPhotoPage(publicToken: string, offset: number): Promise<PublicPhotoPage | null> {
   const token = collectionIdSchema.safeParse(publicToken);
@@ -20,11 +23,12 @@ export async function loadPublicPhotoPage(publicToken: string, offset: number): 
   const admin = createAdminClient();
   const { data: collection, error: collectionError } = await admin
     .from("collections")
-    .select("id,name")
+    .select("id,name,is_active")
     .eq("public_token", token.data)
     .maybeSingle();
   if (collectionError) throw new Error("Não foi possível carregar a galeria.");
   if (!collection) return null;
+  if (!collection.is_active) return { status: "inactive" };
 
   const { data: batch, error: photosError } = await admin
     .from("photos")
@@ -37,10 +41,15 @@ export async function loadPublicPhotoPage(publicToken: string, offset: number): 
 
   const visiblePhotos = batch.slice(0, PUBLIC_PHOTO_PAGE_SIZE);
   if (visiblePhotos.length === 0) {
-    return { collectionName: collection.name, photos: [], hasMore: false };
+    return { status: "active", collectionName: collection.name, photos: [], hasMore: false };
   }
 
   const photos = await signGalleryPhotos(visiblePhotos);
 
-  return { collectionName: collection.name, photos, hasMore: batch.length > PUBLIC_PHOTO_PAGE_SIZE };
+  return {
+    status: "active",
+    collectionName: collection.name,
+    photos,
+    hasMore: batch.length > PUBLIC_PHOTO_PAGE_SIZE,
+  };
 }

@@ -18,7 +18,12 @@ function request(offset = "0", publicToken = token) {
   );
 }
 
-function mockAdmin(photos: { id: string; storage_path: string }[], collection: { id: string; name: string } | null = { id: albumId, name: "Ensaio" }) {
+function mockAdmin(
+  photos: { id: string; storage_path: string }[],
+  collection: { id: string; name: string; is_active: boolean } | null = {
+    id: albumId, name: "Ensaio", is_active: true,
+  },
+) {
   const collectionQuery = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
@@ -57,6 +62,20 @@ describe("public photo pagination", () => {
     const response = await request();
     expect(response.status).toBe(404);
     expect(photoQuery.range).not.toHaveBeenCalled();
+  });
+
+  it("does not read or sign photos from an inactive album", async () => {
+    const { photoQuery, sign } = mockAdmin([], {
+      id: albumId, name: "Ensaio", is_active: false,
+    });
+
+    const response = await request();
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("Álbum indisponível.");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(photoQuery.range).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled();
   });
 
   it("returns at most 24 photos with only compressed R2 images", async () => {

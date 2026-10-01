@@ -1,4 +1,4 @@
-const CACHE_NAME = "shootit-static-v1";
+const CACHE_NAME = "shootit-static-v2";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [OFFLINE_URL, "/icon-192.png", "/icon-512.png"];
 
@@ -31,7 +31,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (!url.pathname.startsWith("/_next/static/") && !PRECACHE_URLS.includes(url.pathname)) return;
+  if (!PRECACHE_URLS.includes(url.pathname)) return;
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
     if (response.ok && response.type === "basic") {
       const copy = response.clone();

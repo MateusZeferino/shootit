@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/app/(app)/app-header";
+import { AlbumStatusForm } from "@/app/(app)/album-status-form";
 import { CollectionForm } from "@/app/(app)/collection-form";
 import { DeleteCollectionForm } from "@/app/(app)/delete-collection-form";
 import { CopyGalleryLink } from "@/app/(app)/copy-gallery-link";
@@ -26,7 +27,7 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
   const { supabase, userId } = await requireUser();
   const { data: collection, error } = await supabase
     .from("collections")
-    .select("id,name,public_token")
+    .select("id,name,public_token,is_active")
     .eq("id", parsedId.data)
     .eq("owner_id", userId)
     .maybeSingle();
@@ -71,11 +72,30 @@ export default async function CollectionPage({ params }: PageProps<"/colecoes/[i
               </div>
             </section>
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold">Compartilhamento</h2>
-              <p className="mt-3 leading-7 text-slate-600">
-                Qualquer pessoa com este link pode visualizar a galeria, sem fazer login.
-              </p>
-              <div className="mt-4"><CopyGalleryLink publicToken={collection.public_token} /></div>
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-xl font-semibold">Compartilhamento</h2>
+                <span className={collection.is_active
+                  ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
+                  : "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"}
+                >
+                  {collection.is_active ? "Ativo" : "Inativo"}
+                </span>
+              </div>
+              {collection.is_active ? (
+                <>
+                  <p className="mt-3 leading-7 text-slate-600">
+                    Qualquer pessoa com este link pode visualizar a galeria, sem fazer login.
+                  </p>
+                  <div className="mt-4"><CopyGalleryLink publicToken={collection.public_token} /></div>
+                </>
+              ) : (
+                <p className="mt-3 leading-7 text-slate-600">
+                  O álbum continua disponível para você, mas o compartilhamento público está desativado.
+                </p>
+              )}
+              <div className="mt-5">
+                <AlbumStatusForm collectionId={collection.id} isActive={collection.is_active} />
+              </div>
             </section>
           </div>
 

@@ -66,6 +66,19 @@ As tabelas e suas políticas RLS continuam no Supabase. As antigas migrations de
 ficam no histórico, mas a aplicação e os testes atuais de fotos usam R2. Não existe migração
 automática de arquivos antigos nem dependência do bucket Supabase para novos uploads.
 
+## Visibilidade dos álbuns
+
+- `collections.is_active` controla somente a exposição pública do álbum.
+- O painel privado do fotógrafo deve listar e permitir o gerenciamento de álbuns ativos e inativos.
+- A galeria compartilhada exige correspondência exata do `public_token`. Quando o álbum está
+  inativo, ela exibe apenas o estado de indisponibilidade, sem consultar ou expor fotos.
+- Um futuro perfil público do fotógrafo deve carregar os álbuns no servidor e aplicar
+  obrigatoriamente o filtro `is_active = true`.
+- Se essa consulta usar o cliente administrativo (`service_role`), o filtro explícito é obrigatório,
+  pois esse cliente ignora RLS. O papel anônimo continua sem acesso direto às tabelas.
+- A consulta pública deve selecionar somente os campos necessários. Reativar um álbum preserva
+  seu `public_token` e restaura o mesmo link de compartilhamento.
+
 ## Testes e operação
 
 - `npm run check`: lint, TypeScript e testes unitários.

@@ -8,6 +8,8 @@ export const collectionNameSchema = z
 
 export const collectionIdSchema = z.uuid();
 
+export const collectionStatusSchema = z.enum(["active", "inactive"]);
+
 export type CollectionFormState = {
   error?: string;
   nameError?: string;

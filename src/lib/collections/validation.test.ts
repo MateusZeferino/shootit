@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectionIdSchema,
   collectionNameSchema,
+  collectionStatusSchema,
 } from "@/lib/collections/validation";
 
 describe("collection validation", () => {
@@ -18,5 +19,12 @@ describe("collection validation", () => {
   it("accepts UUIDs and rejects arbitrary route identifiers", () => {
     expect(collectionIdSchema.safeParse("550e8400-e29b-41d4-a716-446655440000").success).toBe(true);
     expect(collectionIdSchema.safeParse("../outro-usuario").success).toBe(false);
+  });
+
+  it("accepts only the supported album statuses", () => {
+    expect(collectionStatusSchema.parse("active")).toBe("active");
+    expect(collectionStatusSchema.parse("inactive")).toBe("inactive");
+    expect(collectionStatusSchema.safeParse("archived").success).toBe(false);
+    expect(collectionStatusSchema.safeParse(true).success).toBe(false);
   });
 });

@@ -28,6 +28,9 @@ export async function GET(
     if (!photoPage) {
       return new Response("Galeria não encontrada.", { status: 404, headers: NO_STORE_HEADERS });
     }
+    if (photoPage.status === "inactive") {
+      return new Response("Álbum indisponível.", { status: 403, headers: NO_STORE_HEADERS });
+    }
     return Response.json({ photos: photoPage.photos, hasMore: photoPage.hasMore }, { headers: NO_STORE_HEADERS });
   } catch {
     return new Response("Não foi possível carregar as fotos da galeria.", { status: 500, headers: NO_STORE_HEADERS });

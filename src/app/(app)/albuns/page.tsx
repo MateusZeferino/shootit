@@ -17,7 +17,7 @@ export default async function AlbumsPage() {
   while (true) {
     const { data, error } = await supabase
       .from("collections")
-      .select("id,name,public_token")
+      .select("id,name,public_token,is_active")
       .eq("owner_id", userId)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })

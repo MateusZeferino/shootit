@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AlbumSearch } from "@/app/(app)/albuns/album-search";
 
 const albums = [
-  { id: "1", name: "Família", public_token: "token-1" },
-  { id: "2", name: "Casamento", public_token: "token-2" },
-  { id: "3", name: "Retratos", public_token: "token-3" },
+  { id: "1", name: "Família", public_token: "token-1", is_active: true },
+  { id: "2", name: "Casamento", public_token: "token-2", is_active: true },
+  { id: "3", name: "Retratos", public_token: "token-3", is_active: false },
 ];
 
 afterEach(cleanup);

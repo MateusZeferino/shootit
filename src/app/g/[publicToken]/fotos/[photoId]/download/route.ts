@@ -26,7 +26,7 @@ export async function GET(
   const admin = createAdminClient();
   const { data: collection, error: collectionError } = await admin
     .from("collections")
-    .select("id")
+    .select("id,is_active")
     .eq("public_token", token.data)
     .maybeSingle();
   if (collectionError) {
@@ -34,6 +34,9 @@ export async function GET(
   }
   if (!collection) {
     return new Response("Foto não encontrada.", { status: 404, headers: NO_STORE_HEADERS });
+  }
+  if (!collection.is_active) {
+    return new Response("Álbum indisponível.", { status: 403, headers: NO_STORE_HEADERS });
   }
 
   const { data: photo, error: photoError } = await admin

@@ -37,7 +37,7 @@ describe("public photo download", () => {
   });
 
   it("does not sign a photo outside the album identified by the public token", async () => {
-    const albumQuery = query({ data: { id: albumId }, error: null });
+    const albumQuery = query({ data: { id: albumId, is_active: true }, error: null });
     const photoQuery = query({ data: null, error: null });
     const sign = vi.mocked(signDownload);
     sign.mockResolvedValue("https://storage.example/signed?download=foto.png");
@@ -51,9 +51,25 @@ describe("public photo download", () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  it("does not read or sign a photo from an inactive album", async () => {
+    const albumQuery = query({ data: { id: albumId, is_active: false }, error: null });
+    const photoQuery = query({ data: null, error: null });
+    vi.mocked(createAdminClient).mockReturnValue({
+      from: vi.fn((table) => table === "collections" ? albumQuery : photoQuery),
+    } as never);
+
+    const response = await request();
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("Álbum indisponível.");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(photoQuery.select).not.toHaveBeenCalled();
+    expect(signDownload).not.toHaveBeenCalled();
+  });
+
   it("creates a fresh download URL only for a photo in the shared album", async () => {
     const path = `owner/${albumId}/${photoId}.png`;
-    const albumQuery = query({ data: { id: albumId }, error: null });
+    const albumQuery = query({ data: { id: albumId, is_active: true }, error: null });
     const photoQuery = query({ data: { id: photoId, storage_path: path, mime_type: "image/png" }, error: null });
     const sign = vi.mocked(signDownload);
     sign.mockResolvedValue("https://storage.example/signed?download=foto.png");

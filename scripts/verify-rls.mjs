@@ -50,11 +50,12 @@ try {
   assert.deepEqual(profilesB.data.map((profile) => profile.id), [b.id]);
 
   const created = await a.client.from("collections")
-    .insert({ name: "RLS Test" }).select("id,owner_id,public_token").single();
+    .insert({ name: "RLS Test" }).select("id,owner_id,public_token,is_active").single();
   assert.ifError(created.error);
   const collection = created.data;
   assert.equal(collection.owner_id, a.id);
   assert.ok(collection.public_token);
+  assert.equal(collection.is_active, true, "Todo novo álbum deve iniciar ativo.");
 
   const forgedOwner = await b.client.from("collections")
     .insert({ name: "Invasão", owner_id: a.id });
@@ -69,9 +70,31 @@ try {
   const renameByB = await b.client.from("collections")
     .update({ name: "Invasão" }).eq("id", collection.id).select("id");
   assert.ok(renameByB.error || renameByB.data.length === 0);
+  const deactivateByB = await b.client.from("collections")
+    .update({ is_active: false }).eq("id", collection.id).select("id,is_active");
+  assert.ok(
+    deactivateByB.error || deactivateByB.data.length === 0,
+    "Outro usuário não pode alterar o status do álbum.",
+  );
+  const deactivateByVisitor = await visitor.from("collections")
+    .update({ is_active: false }).eq("id", collection.id).select("id");
+  assert.ok(deactivateByVisitor.error, "Visitante não pode alterar o status do álbum.");
   const deleteByB = await b.client.from("collections")
     .delete().eq("id", collection.id).select("id");
   assert.ok(deleteByB.error || deleteByB.data.length === 0);
+
+  const deactivated = await a.client.from("collections")
+    .update({ is_active: false })
+    .eq("id", collection.id)
+    .select("id,public_token,is_active")
+    .single();
+  assert.ifError(deactivated.error);
+  assert.equal(deactivated.data.is_active, false);
+  assert.equal(
+    deactivated.data.public_token,
+    collection.public_token,
+    "Desativar o álbum não deve trocar seu token público.",
+  );
 
   const photoId = randomUUID();
   const path = `${a.id}/${collection.id}/${photoId}.png`;
@@ -95,7 +118,25 @@ try {
   assert.ifError(ownPhoto.error);
   assert.equal(ownPhoto.data.length, 1);
 
-  console.log("OK: RLS isola visitante e usuários A/B; grants bloqueiam alterações indevidas.");
+  const inactiveCollectionForOwner = await a.client.from("collections")
+    .select("id,is_active").eq("id", collection.id).single();
+  assert.ifError(inactiveCollectionForOwner.error);
+  assert.equal(inactiveCollectionForOwner.data.is_active, false);
+
+  const reactivated = await a.client.from("collections")
+    .update({ is_active: true })
+    .eq("id", collection.id)
+    .select("public_token,is_active")
+    .single();
+  assert.ifError(reactivated.error);
+  assert.equal(reactivated.data.is_active, true);
+  assert.equal(
+    reactivated.data.public_token,
+    collection.public_token,
+    "Reativar o álbum deve restaurar o mesmo link público.",
+  );
+
+  console.log("OK: RLS isola visitante e usuários A/B, inclusive ao alternar o status do álbum.");
 } finally {
   for (const id of users) await admin.auth.admin.deleteUser(id);
 }

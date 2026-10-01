@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/user";
 import {
   collectionIdSchema,
   collectionNameSchema,
+  collectionStatusSchema,
   type CollectionFormState,
 } from "@/lib/collections/validation";
 import { removeUserObjects } from "@/lib/storage/r2";
@@ -70,6 +71,42 @@ export async function renameCollection(
   revalidatePath("/albuns");
   revalidatePath(`/colecoes/${id}`);
   return { success: "Nome atualizado." };
+}
+
+export async function updateCollectionStatus(
+  _previousState: CollectionFormState,
+  formData: FormData,
+): Promise<CollectionFormState> {
+  const { supabase, userId } = await requireUser();
+  const id = parseCollectionId(formData.get("id"));
+  const status = collectionStatusSchema.safeParse(formData.get("status"));
+  if (!status.success) {
+    return { error: "Status do álbum inválido." };
+  }
+
+  const isActive = status.data === "active";
+  const { data, error } = await supabase
+    .from("collections")
+    .update({ is_active: isActive })
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .select("id,public_token")
+    .maybeSingle();
+
+  if (error) {
+    return { error: "Não foi possível atualizar o status do álbum. Tente novamente." };
+  }
+  if (!data) notFound();
+
+  revalidatePath("/dashboard");
+  revalidatePath("/albuns");
+  revalidatePath(`/colecoes/${id}`);
+  revalidatePath(`/g/${data.public_token}`);
+  return {
+    success: isActive
+      ? "Álbum ativado. O compartilhamento está disponível."
+      : "Álbum inativado. O compartilhamento foi desativado.",
+  };
 }
 
 export async function deleteCollection(
